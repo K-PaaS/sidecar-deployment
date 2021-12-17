@@ -1,0 +1,24 @@
+#@data/values
+---
+capi:
+  #@override/replace
+  database:
+    adapter: postgres
+    host: <external_db_ip>
+    port: <external_db_port>
+    user: <external_cc_db_id>
+    password: <external_cc_db_password>
+    name: <external_cc_db_name>
+    ca_cert: |
+
+uaa:
+  #@overlay/replace
+  database:
+    adapter: postgresql
+    host: <external_db_ip>
+    port: <external_db_port>
+    user: <external_uaa_db_id>
+    password: <external_uaa_db_password>
+    name: <external_uaa_db_name>
+    ca_cert: |
+

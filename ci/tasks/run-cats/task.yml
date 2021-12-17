@@ -1,0 +1,47 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: cloudfoundry/cf-for-k8s-ci
+
+inputs:
+- name: cf-for-k8s-ci
+- name: env-metadata
+  optional: true
+- name: cf-acceptance-tests
+
+params:
+  CF_APPS_DOMAIN:
+  CF_API_DOMAIN:
+  CF_ADMIN_PASSWORD:
+  NUM_FLAKE_ATTEMPTS: 2
+  NUM_NODES: 6
+  SKIP_SSL_VALIDATION: true
+  CF_PUSH_TIMEOUT: 600
+  DEFAULT_TIMEOUT: 360
+  INCLUDE_APPS: false
+  INCLUDE_BACKEND_COMPATABILITY: false
+  INCLUDE_DEPLOYMENTS: false
+  INCLUDE_DETECT: false
+  INCLUDE_DOCKER: false
+  INCLUDE_INTERNET_DEPENDENT: false
+  INCLUDE_DOCKER_REGISTRY: false
+  INCLUDE_ROUTE_SERVICES: false
+  INCLUDE_ROUTING: false
+  INCLUDE_SERVICE_DISCOVERY: false
+  INCLUDE_SERVICE_INSTANCE_SHARING: false
+  INCLUDE_SERVICES: false
+  INCLUDE_TASKS: false
+  INCLUDE_V3: false
+  RUBY_BUILDPACK: paketo-buildpacks/ruby
+  PYTHON_BUILDPACK: paketo-community/python
+  GO_BUILDPACK: paketo-buildpacks/go
+  JAVA_BUILDPACK: paketo-buildpacks/java
+  NODEJS_BUILDPACK: paketo-buildpacks/nodejs
+  PHP_BUILDPACK: paketo-buildpacks/php
+  BINARY_BUILDPACK: paketo-buildpacks/procfile
+
+run:
+  path: cf-for-k8s-ci/ci/tasks/run-cats/task.sh

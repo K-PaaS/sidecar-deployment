@@ -1,0 +1,9 @@
+#@data/values
+---
+#! Default values for cf-k8s-networking.
+#! This is a YTT-formatted file.
+systemNamespace: cf-system
+workloadsNamespace: cf-workloads
+
+service:
+  externalPort: 80

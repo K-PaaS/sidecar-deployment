@@ -1,0 +1,121 @@
+#@ load("@ytt:data", "data")
+
+#@ image_list = [ "api", "event-reporter", "task-reporter", "instance-index-env-injector" ]
+
+#@ tag_version = "3.1.0"
+---
+resources:
+- name: cf-for-k8s-ci
+  type: git
+  icon: github
+  source:
+    branch: develop
+    uri: git@github.com:cloudfoundry/cf-for-k8s
+    private_key: ((cf_for_k8s_readonly_deploy_key.private_key))
+    paths:
+      - ci/**
+
+- name: eirini
+  type: git
+  source:
+    uri: git@github.com:cloudfoundry-incubator/eirini.git
+    private_key: ((cf_for_k8s_readwrite_deploy_key.private_key))
+    branch: #@ tag_version
+
+- name: eirini-release
+  type: github-release
+  icon: github
+  source:
+    owner: cloudfoundry-incubator
+    repository: eirini-release
+    access_token: ((cf_deployment_release_bot_access_token))
+
+jobs:
+#@ for img in image_list:
+- name: #@ "build-{}".format(img)
+  plan:
+  - in_parallel:
+    - get: cf-for-k8s-ci
+    - get: eirini
+    - get: eirini-release
+      version:
+        tag: #@ "v{}".format(tag_version)
+
+  - task: rev-parse
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: bitnami/git
+      inputs:
+      - name: eirini
+      outputs:
+      - name: revision
+      run:
+        path: /bin/bash
+        args:
+        - -c
+        - |
+          set -e
+          pushd eirini
+            git rev-parse HEAD > ../revision/revision
+            git describe --tags > ../revision/tag
+          popd > /dev/null
+
+  - task: #@ "build-{}".format(img)
+    privileged: true
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: vito/oci-build-task
+      inputs:
+      - name: eirini
+      - name: revision
+      outputs:
+      - name: image
+      caches:
+      - path: cache
+      run:
+        path: /bin/sh
+        args:
+        - -c
+        - |
+          export BUILD_ARG_GIT_SHA="$(cat revision/revision)"
+          ls -R
+          build
+
+      params:
+        DOCKERFILE: #@ "./eirini/docker/{}/Dockerfile".format(img)
+        CONTEXT: ./eirini/
+
+  - task: #@ "deplab-{}".format(img)
+    privileged: true
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: cloudfoundry/cf-for-k8s-deplab
+      inputs:
+      - name: eirini
+      - name: image
+      outputs:
+      - name: deplab-image
+      run:
+        path: /bin/sh
+        args:
+        - -c
+        - |
+          deplab --image-tar image/image.tar \
+            --git eirini \
+            --output-tar deplab-image/image.tar
+
+  - task: #@ "publish-{}".format(img)
+    privileged: true
+    file: cf-for-k8s-ci/ci/tasks/publish-eirini-image/task.yml
+    params:
+      REPOSITORY: #@ "cloudfoundry/eirini-{}-cf-for-k8s".format(img)
+#@ end

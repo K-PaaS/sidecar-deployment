@@ -1,0 +1,8 @@
+
+apiVersion: kbld.k14s.io/v1alpha1
+kind: Config
+minimumRequiredVersion: 0.28.0
+overrides:
+  - image: ghcr.io/cloudfoundry-incubator/uarks-secret:v1.0.758
+    newImage: ghcr.io/cloudfoundry-incubator/quarks-secret@sha256:265adf83e2f4ccef62b2c93999fe830c783d92ad2e703ff1c21c20d6ecbf357e
+    preresolved: true

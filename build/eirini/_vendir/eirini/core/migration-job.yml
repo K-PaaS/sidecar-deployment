@@ -1,0 +1,33 @@
+---
+# Source: eirini/templates/core/migration-job.yml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: eirini-app-migration
+  namespace: cf-system
+  annotations:
+    kapp.k14s.io/update-strategy: fallback-on-replace
+spec:
+  backoffLimit: 4
+  template:
+    metadata:
+      labels:
+        name: eirini-app-migration
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      serviceAccountName: eirini-migration
+      securityContext:
+        runAsNonRoot: true
+      containers:
+      - name: migration
+        image: eirini/migration@sha256:88a8e2ef2c32fe6858040451c62a782d63fc00d24b525d669b82b8a91d87a633
+        imagePullPolicy: IfNotPresent
+        resources:
+          requests:
+            cpu: 20m
+            memory: 20Mi
+          limits:
+            cpu: 100m
+            memory: 100Mi
+      restartPolicy: OnFailure

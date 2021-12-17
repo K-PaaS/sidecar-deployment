@@ -1,0 +1,12 @@
+#@data/values
+---
+blobstore:
+  endpoint: http://10.0.21.121:9000
+  region:  
+  access_key_id: admin
+  secret_access_key: admin-secret
+  package_directory_key: cc-package
+  droplet_directory_key: cc-droplet
+  resource_directory_key: cc-resource
+  buildpack_directory_key: cc-buildpack
+  aws_signature_version: "2"

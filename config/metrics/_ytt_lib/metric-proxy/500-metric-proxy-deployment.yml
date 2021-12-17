@@ -1,0 +1,42 @@
+#@ load("@ytt:data", "data")
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metric-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: metric-proxy
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: metric-proxy
+      containers:
+      - name: metric-proxy
+        image: #@ data.values.images.metric_proxy
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        - containerPort: 9090
+        env:
+        - name: ADDR
+          value: :8080
+        - name: APP_SELECTOR
+          value: cloudfoundry.org/guid
+        - name: NAMESPACE
+          value: cf-workloads
+        - name: QUERY_TIMEOUT
+          value: "5"
+        resources:
+          limits:
+            cpu: 30m
+            memory: 25Mi
+          requests:
+            cpu: 15m
+            memory: 10Mi

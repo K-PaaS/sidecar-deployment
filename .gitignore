@@ -1,0 +1,10 @@
+**/*.tfstate
+**/*.tfstate.backup
+**/.terraform/
+**/*.tfvars
+**/kubeconfig_*
+tmp
+.idea
+*~
+images/sources/
+tests/smoke/smoke.test

@@ -1,0 +1,10 @@
+#@data/values
+---
+system_domain: ""
+system_namespace: ""
+
+name: metric-proxy
+component: container-metrics
+part_of: cloudfoundry
+managed_by: metric-egress
+version: 1.3.0

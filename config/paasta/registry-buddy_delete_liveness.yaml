@@ -1,0 +1,28 @@
+#@ load("@ytt:data", "data")
+#@ load("@ytt:overlay", "overlay")
+
+#@overlay/match by=overlay.subset({"kind":"Deployment","metadata":{"name":"cf-api-server"}})
+---
+spec:
+  template:
+    spec:
+      containers:
+        #@overlay/match by="name"
+        - name: registry-buddy
+          #@overlay/match missing_ok=True
+          #@overlay/remove
+          livenessProbe:
+
+
+#@overlay/match by=overlay.subset({"kind":"Deployment","metadata":{"name":"cf-api-worker"}})
+---
+spec:
+  template:
+    spec:
+      containers:
+        #@overlay/match by="name"
+        - name: registry-buddy
+          #@overlay/match missing_ok=True
+          #@overlay/remove
+          livenessProbe:
+

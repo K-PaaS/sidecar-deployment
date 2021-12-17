@@ -1,0 +1,37 @@
+#@ load("@ytt:data", "data")
+#@ load("@ytt:overlay", "overlay")
+
+#@ if data.values.is_self_signed_certificate == True:
+#@overlay/match by=overlay.subset({"kind":"Deployment","metadata":{"name":"cf-api-server"}})
+---
+spec:
+  template:
+    metadata:
+      labels:
+        #@overlay/match missing_ok=True
+        private-repo-cert-injection: enable
+#@ end
+
+
+#@ if data.values.is_self_signed_certificate == True:
+#@overlay/match by=overlay.subset({"kind":"Deployment","metadata":{"name":"cf-api-worker"}})
+---
+spec:
+  template:
+    metadata:
+      labels:
+        #@overlay/match missing_ok=True
+        private-repo-cert-injection: enable
+#@ end
+
+#@ if data.values.is_self_signed_certificate == True:
+#@overlay/match by=overlay.subset({"kind":"Deployment","metadata":{"name":"kpack-controller"}})
+---
+spec:
+  template:
+    metadata:
+      labels:
+        #@overlay/match missing_ok=True
+        private-repo-cert-injection: enable
+#@ end
+

@@ -1,0 +1,20 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: cloudfoundry/cf-for-k8s-dind
+
+inputs:
+- name: cf-for-k8s-ci
+- name: deplab-image
+- name: eirini-release
+
+params:
+  DOCKER_USERNAME: ((dockerhub.username))
+  DOCKER_PASSWORD: ((dockerhub.password))
+  REPOSITORY:
+
+run:
+  path: cf-for-k8s-ci/ci/tasks/publish-eirini-image/task.sh

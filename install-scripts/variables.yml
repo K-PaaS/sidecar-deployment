@@ -1,0 +1,44 @@
+## COMMON VARIABLE
+iaas=aws                                                    # IaaS (e.g. aws or openstack)
+system_domain=sidecar.com                                   # sidecar system_domain (e.g. 3.35.135.135.nip.io)
+use_lb=true                                                 # (e.g. true or false)
+public_ip=3.35.135.135                                      # LoadbalancerIP (PublicIP associcated with system_domain, if use openstack)
+storageclass_name=ebs-sc                                    # Storage Class Name ($ kubectl get sc) (e.g. ebs-sc[use aws] || cinder-csi[use openstack])
+
+
+## APP_REGISTRY VARIABLE
+app_registry_kind=dockerhub                                 # Registry Kind (e.g. dockerhub or private)
+app_registry_repository=repository_name                     # Repository Name 
+app_registry_id=registry_id                                 # Registry ID
+app_registry_password=registry_password                     # Registry Password
+
+app_registry_address=harbor00.nip.io                        # if app_registry_kind==private, fill in app_registry_address
+is_self_signed_certificate=false                            # is private registry use self-signed certificate? (e.g. true or false)
+app_registry_cert_path=support-files/private-repository.ca  # if is_self_signed_certificate==true --> add the contents of the private-repository.ca file
+                                                            # if is_self_signed_certificate==false --> private-repository.ca is empty
+
+## EXTERNAL BLOBSTORE VARIABLE (Option)
+use_external_blobstore=false                                # (e.g. true or false)
+external_blobstore_ip=192.50.50.50                          # Blobstore Address (e.g. 127.0.0.1) 
+external_blobstore_port=9000                                # Blobstore Port (e.g. 9000)
+external_blobstore_id=admin                                 # Blobstore ID
+external_blobstore_password=adminpw                         # Blobstore Password
+external_blobstore_package_directory=cc-package             # Blobstore Package Directory
+external_blobstore_droplet_directory=cc-droplet             # Blobstore Droplet Directory
+external_blobstore_resource_directory=cc-resource           # Blobstore Resource Directory
+external_blobstore_buildpack_directory=cc-buildpack         # Blobstore Buildpack Directory
+
+
+## EXTERNAL DB VARIABLE (Option)
+use_external_db=false                                       # (e.g. true or false)
+external_db_kind=postgres                                   # External DB Kind(e.g. postgres or mysql)
+external_db_ip=10.100.100.100                               # External DB IP
+external_db_port=5432                                       # External DB Port
+external_cc_db_id=cloud_controller                          # Cloud Controller DB ID
+external_cc_db_password=cc_admin                            # Cloud Controller DB Password
+external_cc_db_name=cloud_controller                        # Cloud Controller DB Name
+external_uaa_db_id=uaa                                      # UAA DB ID
+external_uaa_db_password=uaa_admin                          # UAA DB Password
+external_uaa_db_name=uaa                                    # UAA DB Name
+external_db_cert_path=support-files/db.ca                   # if DB use cert --> add the contents of the db.ca file
+                                                            # if DB don't use cert --> db.ca is empty

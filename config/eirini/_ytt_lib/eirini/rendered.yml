@@ -1,0 +1,1191 @@
+---
+apiVersion: v1
+data:
+  api.yml: |
+    # app_namespace is the namespace used by Eirini to deploy LRPs that do
+    # not specify their own namespace in the request.
+    app_namespace: cf-workloads
+
+    # serve_plaintext specifies whether the Eirini REST API should be served
+    # over plain HTTP or not.
+    #
+    # When serve_plaintext is false, which is the default, a secret must be
+    # provided for the eirini-certs volume in core/api-deployment.yml. This
+    # must have entries tls.ca, tls.crt and tls.key, for the TLS certificate
+    # authority, certificate and key respectively, used to serve TLS.
+    serve_plaintext: true
+
+    # plaintext_port is the port used by Eirini to serve its REST API over
+    # plain HTTP.  Required when serve_plaintext is set to true.
+    plaintext_port: 8080
+
+    # tls_port is the port used by Eirini to serve its REST API over HTTPS
+    # Required when serve_plaintext is set to false or omitted.
+    tls_port: 8085
+
+    # cc_tls_disabled specifies wether Eirini should communicate to the Cloud
+    # Controller via HTTPS or not. This should be set to false if TLS is
+    # handled transparently, e.g. by a service mesh.
+    #
+    # When cc_tls_disabled is false, which is the default, a secret must be
+    # provided for the cc-certs volume in core/api-deployment.yml. This must
+    # have entries tls.ca, tls.crt and tls.key, for the TLS certificate
+    # authority, client certificate and key respectively, used for mTLS with
+    # the Cloud Controller.
+    cc_tls_disabled: true
+
+    # application_service_account is name of the service account used by
+    # running LRPs and tasks. It must match the service account name in
+    # workloads/app-rbac.yml
+    application_service_account: eirini
+
+    # registry_secret_name is the name of the secret containing the docker
+    # credentials to pull LRP images
+    registry_secret_name: app-registry-credentials
+
+    # allow_run_image_as_root will allow containers to run as root when set
+    # to true.  As kubernetes does not use user namespaces, this will be the
+    # same root user as on the kubernetes node, and so is a security concern.
+    # It should be generally left as false.
+    allow_run_image_as_root: false
+
+    # unsafe_allow_automount_service_account_token when set to true causes
+    # Kubernetes to mount the service account token in the LRP and task
+    # containers. This gives the code running there access to the Kubernetes
+    # API with the privileges of the application service account.
+    #
+    # This should generally be left as the default false unless there is a
+    # good reason and the implications are understood. It is required when
+    # running cf-for-k8s in a kind cluster, for example.
+    unsafe_allow_automount_service_account_token: false
+kind: ConfigMap
+metadata:
+  name: eirini-api
+  namespace: cf-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kbld.k14s.io/images: |
+      null
+  name: eirini-api
+  namespace: cf-system
+spec:
+  selector:
+    matchLabels:
+      name: eirini-api
+  template:
+    metadata:
+      labels:
+        name: eirini-api
+    spec:
+      containers:
+      - args:
+        - --config
+        - /etc/eirini/config/api.yml
+        image: index.docker.io/eirini/api@sha256:f84d3d5bab05c089c895e4316789e65f4f66b6bb02349e0a23a004276670f374
+        imagePullPolicy: IfNotPresent
+        name: api
+        ports:
+        - containerPort: 8080
+          name: http
+        resources:
+          limits:
+            cpu: 100m
+            memory: 100Mi
+          requests:
+            cpu: 20m
+            memory: 20Mi
+        volumeMounts:
+        - mountPath: /etc/eirini/config
+          name: config-map
+        - mountPath: /etc/eirini/certs
+          name: eirini-certs
+        - mountPath: /etc/cf-api/certs
+          name: cc-certs
+      dnsPolicy: ClusterFirst
+      securityContext:
+        runAsNonRoot: true
+      serviceAccountName: eirini-api
+      volumes:
+      - configMap:
+          name: eirini-api
+        name: config-map
+      - name: cc-certs
+        secret:
+          optional: true
+          secretName: eirini-internal-tls-certs
+      - name: eirini-certs
+        secret:
+          optional: true
+          secretName: eirini-internal-tls-certs
+---
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  annotations:
+    seccomp.security.alpha.kubernetes.io/allowedProfileNames: runtime/default
+    seccomp.security.alpha.kubernetes.io/defaultProfileName: runtime/default
+  name: eirini-api
+spec:
+  allowPrivilegeEscalation: false
+  fsGroup:
+    ranges:
+    - max: 65535
+      min: 1
+    rule: MustRunAs
+  hostIPC: false
+  hostNetwork: false
+  hostPID: false
+  privileged: false
+  readOnlyRootFilesystem: false
+  requiredDropCapabilities:
+  - ALL
+  runAsUser:
+    rule: MustRunAsNonRoot
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    ranges:
+    - max: 65535
+      min: 1
+    rule: MustRunAs
+  volumes:
+  - configMap
+  - emptyDir
+  - projected
+  - secret
+  - downwardAPI
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eirini-api
+  namespace: cf-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: eirini-cluster-role
+rules:
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - list
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - list
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - list
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: eirini-cluster-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eirini-cluster-role
+subjects:
+- kind: ServiceAccount
+  name: eirini-api
+  namespace: cf-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: eirini-api-role
+  namespace: cf-system
+rules:
+- apiGroups:
+  - policy
+  resourceNames:
+  - eirini-api
+  resources:
+  - podsecuritypolicies
+  verbs:
+  - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: eirini-api-rolebinding
+  namespace: cf-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: eirini-api-role
+subjects:
+- kind: ServiceAccount
+  name: eirini-api
+  namespace: cf-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eirini
+  namespace: cf-system
+spec:
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+  selector:
+    name: eirini-api
+---
+apiVersion: v1
+data:
+  instance-index-env-injector.yml: |
+    # service_port is the port exposed by the instance index env injector
+    # webhook Service.
+    service_port: 8443
+kind: ConfigMap
+metadata:
+  name: eirini-instance-index-env-injector
+  namespace: cf-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kbld.k14s.io/images: |
+      null
+  name: eirini-instance-index-env-injector
+  namespace: cf-system
+spec:
+  selector:
+    matchLabels:
+      name: eirini-instance-index-env-injector
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
+      labels:
+        name: eirini-instance-index-env-injector
+    spec:
+      containers:
+      - args:
+        - --config
+        - /etc/eirini/config/instance-index-env-injector.yml
+        image: index.docker.io/eirini/instance-index-env-injector@sha256:9cb11536c8bec3cd4109f5ce34f551921e0dc3ea82ebac0851890390baf2ec3f
+        imagePullPolicy: IfNotPresent
+        name: instance-index-env-injector
+        ports:
+        - containerPort: 8443
+          name: https
+        resources:
+          limits:
+            cpu: 100m
+            memory: 100Mi
+          requests:
+            cpu: 20m
+            memory: 20Mi
+        volumeMounts:
+        - mountPath: /etc/eirini/config
+          name: config-map-volume
+        - mountPath: /etc/eirini/certs
+          name: certs
+      securityContext:
+        runAsNonRoot: true
+      serviceAccountName: eirini-instance-index-env-injector
+      volumes:
+      - configMap:
+          name: eirini-instance-index-env-injector
+        name: config-map-volume
+      - name: certs
+        secret:
+          secretName: eirini-instance-index-env-injector-certs
+---
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  annotations:
+    seccomp.security.alpha.kubernetes.io/allowedProfileNames: runtime/default
+    seccomp.security.alpha.kubernetes.io/defaultProfileName: runtime/default
+  name: eirini-instance-index-env-injector
+spec:
+  allowPrivilegeEscalation: false
+  fsGroup:
+    ranges:
+    - max: 65535
+      min: 1
+    rule: MustRunAs
+  hostIPC: false
+  hostNetwork: false
+  hostPID: false
+  privileged: false
+  readOnlyRootFilesystem: false
+  requiredDropCapabilities:
+  - ALL
+  runAsUser:
+    rule: MustRunAsNonRoot
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    ranges:
+    - max: 65535
+      min: 1
+    rule: MustRunAs
+  volumes:
+  - configMap
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eirini-instance-index-env-injector
+  namespace: cf-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: eirini-instance-index-env-injector-psp
+  namespace: cf-system
+rules:
+- apiGroups:
+  - policy
+  resourceNames:
+  - eirini-instance-index-env-injector
+  resources:
+  - podsecuritypolicies
+  verbs:
+  - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: eirini-instance-index-env-injector-psp
+  namespace: cf-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: eirini-instance-index-env-injector-psp
+subjects:
+- kind: ServiceAccount
+  name: eirini-instance-index-env-injector
+  namespace: cf-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eirini-instance-index-env-injector
+  namespace: cf-system
+spec:
+  ports:
+  - name: https
+    port: 443
+    protocol: TCP
+    targetPort: 8443
+  selector:
+    name: eirini-instance-index-env-injector
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: eirini-x-mutating-hook
+webhooks:
+- admissionReviewVersions:
+  - v1beta1
+  clientConfig:
+    caBundle: null
+    service:
+      name: eirini-instance-index-env-injector
+      namespace: cf-system
+  name: instance-index-env-injector.eirini.cloudfoundry.org
+  objectSelector:
+    matchLabels:
+      cloudfoundry.org/source_type: APP
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - pods
+    scope: Namespaced
+  sideEffects: None
+  timeoutSeconds: 10
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  annotations:
+    kapp.k14s.io/update-strategy: fallback-on-replace
+    kbld.k14s.io/images: |
+      null
+  name: eirini-app-migration
+  namespace: cf-system
+spec:
+  backoffLimit: 4
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
+      labels:
+        name: eirini-app-migration
+    spec:
+      containers:
+      - image: index.docker.io/eirini/migration@sha256:88a8e2ef2c32fe6858040451c62a782d63fc00d24b525d669b82b8a91d87a633
+        imagePullPolicy: IfNotPresent
+        name: migration
+        resources:
+          limits:
+            cpu: 100m
+            memory: 100Mi
+          requests:
+            cpu: 20m
+            memory: 20Mi
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+      serviceAccountName: eirini-migration
+---
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  annotations:
+    seccomp.security.alpha.kubernetes.io/allowedProfileNames: runtime/default
+    seccomp.security.alpha.kubernetes.io/defaultProfileName: runtime/default
+  name: eirini-migration
+spec:
+  allowPrivilegeEscalation: false
+  fsGroup:
+    ranges:
+    - max: 65535
+      min: 1
+    rule: MustRunAs
+  hostIPC: false
+  hostNetwork: false
+  hostPID: false
+  privileged: false
+  readOnlyRootFilesystem: false
+  requiredDropCapabilities:
+  - ALL
+  runAsUser:
+    rule: MustRunAsNonRoot
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    ranges:
+    - max: 65535
+      min: 1
+    rule: MustRunAs
+  volumes:
+  - configMap
+  - emptyDir
+  - projected
+  - secret
+  - downwardAPI
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eirini-migration
+  namespace: cf-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: eirini-migration-cluster-role
+rules:
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - list
+  - patch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - list
+  - patch
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - get
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: eirini-migration-cluster-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eirini-migration-cluster-role
+subjects:
+- kind: ServiceAccount
+  name: eirini-migration
+  namespace: cf-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: eirini-migration-role
+  namespace: cf-system
+rules:
+- apiGroups:
+  - policy
+  resourceNames:
+  - eirini-migration
+  resources:
+  - podsecuritypolicies
+  verbs:
+  - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: eirini-migration-rolebinding
+  namespace: cf-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: eirini-migration-role
+subjects:
+- kind: ServiceAccount
+  name: eirini-migration
+  namespace: cf-system
+---
+apiVersion: v1
+data:
+  task-reporter.yml: |
+    # cc_tls_disabled specifies wether Eirini should communicate to the Cloud
+    # Controller via HTTPS or not. This should be set to false if TLS is
+    # handled transparently, e.g. by a service mesh.
+    #
+    # When cc_tls_disabled is false, which is the default, a secret must be
+    # provided for the cc-certs volume in core/api-deployment.yml. This must
+    # have entries tls.ca, tls.crt and tls.key, for the TLS certificate
+    # authority, client certificate and key respectively, used for mTLS with
+    # the Cloud Controller.
+    cc_tls_disabled: true
+
+    # completion_callback_retry_limit is the number of times Eirini will retry
+    # to call the Cloud Controller completion callback in case the Cloud
+    # Controller is unreachable.
+    completion_callback_retry_limit: 10
+
+    # ttl_seconds is the number of seconds Eirini will wait before deleting the
+    # Job associated to a completed Task.
+    ttl_seconds: 5
+kind: ConfigMap
+metadata:
+  name: eirini-task-reporter
+  namespace: cf-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kbld.k14s.io/images: |
+      null
+  name: eirini-task-reporter
+  namespace: cf-system
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      name: eirini-task-reporter
+  template:
+    metadata:
+      labels:
+        name: eirini-task-reporter
+    spec:
+      containers:
+      - args:
+        - --config
+        - /etc/eirini/config/task-reporter.yml
+        image: index.docker.io/eirini/task-reporter@sha256:c9cf7ebe1ff5190aafb1c58ee91e0da32a83eeaec34aec46cd13d32d30fea232
+        imagePullPolicy: IfNotPresent
+        name: task-reporter
+        resources:
+          limits:
+            cpu: 100m
+            memory: 100Mi
+          requests:
+            cpu: 15m
+            memory: 15Mi
+        volumeMounts:
+        - mountPath: /etc/eirini/config
+          name: config-map-volume
+        - mountPath: /etc/cf-api/certs
+          name: cc-certs
+      dnsPolicy: ClusterFirst
+      securityContext:
+        runAsNonRoot: true
+      serviceAccountName: eirini-task-reporter
+      volumes:
+      - configMap:
+          items:
+          - key: task-reporter.yml
+            path: task-reporter.yml
+          name: eirini-task-reporter
+        name: config-map-volume
+      - name: cc-certs
+        secret:
+          optional: true
+          secretName: eirini-internal-tls-certs
+---
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  annotations:
+    seccomp.security.alpha.kubernetes.io/allowedProfileNames: runtime/default
+    seccomp.security.alpha.kubernetes.io/defaultProfileName: runtime/default
+  name: eirini-task-reporter
+spec:
+  allowPrivilegeEscalation: false
+  fsGroup:
+    ranges:
+    - max: 65535
+      min: 1
+    rule: MustRunAs
+  hostIPC: false
+  hostNetwork: false
+  hostPID: false
+  privileged: false
+  readOnlyRootFilesystem: false
+  requiredDropCapabilities:
+  - ALL
+  runAsUser:
+    rule: MustRunAsNonRoot
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    ranges:
+    - max: 65535
+      min: 1
+    rule: MustRunAs
+  volumes:
+  - configMap
+  - secret
+  - projected
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eirini-task-reporter
+  namespace: cf-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: eirini-task-reporter
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - watch
+  - list
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: eirini-task-reporter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eirini-task-reporter
+subjects:
+- kind: ServiceAccount
+  name: eirini-task-reporter
+  namespace: cf-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: eirini-task-reporter-psp
+  namespace: cf-system
+rules:
+- apiGroups:
+  - policy
+  resourceNames:
+  - eirini-task-reporter
+  resources:
+  - podsecuritypolicies
+  verbs:
+  - use
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: eirini-task-reporter-psp
+  namespace: cf-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: eirini-task-reporter-psp
+subjects:
+- kind: ServiceAccount
+  name: eirini-task-reporter
+  namespace: cf-system
+---
+apiVersion: v1
+data:
+  events.yml: |
+    # cc_internal_api is the URL used by Eirini to call the Cloud Controller.
+    cc_internal_api: "http://capi.cf-system.svc.cluster.local:9023"
+
+    # cc_tls_disabled specifies wether Eirini should communicate to the Cloud
+    # Controller via HTTPS or not. This should be set to false if TLS is
+    # handled transparently, e.g. by a service mesh.
+    #
+    # When cc_tls_disabled is false, which is the default, a secret must be
+    # provided for the cc-certs volume in core/api-deployment.yml. This must
+    # have entries tls.ca, tls.crt and tls.key, for the TLS certificate
+    # authority, client certificate and key respectively, used for mTLS with
+    # the Cloud Controller.
+    cc_tls_disabled: true
+kind: ConfigMap
+metadata:
+  name: eirini-event-reporter
+  namespace: cf-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kbld.k14s.io/images: |
+      null
+  name: eirini-event-reporter
+  namespace: cf-system
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      name: eirini-event-reporter
+  template:
+    metadata:
+      labels:
+        name: eirini-event-reporter
+    spec:
+      containers:
+      - args:
+        - --config
+        - /etc/eirini-event-reporter/config/events.yml
+        image: index.docker.io/eirini/event-reporter@sha256:d298794619ded238bdaed0f755b59cfbae724752e26c87c796443025c0c76c2e
+        imagePullPolicy: IfNotPresent
+        name: event-reporter
+        resources:
+          limits:
+            cpu: 100m
+            memory: 100Mi
+          requests:
+            cpu: 15m
+            memory: 15Mi
+        volumeMounts:
+        - mountPath: /etc/eirini-event-reporter/config
+          name: config-map-volume
+        - mountPath: /etc/cf-api/certs
+          name: cc-certs
+      dnsPolicy: ClusterFirst
+      securityContext:
+        runAsNonRoot: true
+      serviceAccountName: eirini-event-reporter
+      volumes:
+      - configMap:
+          name: eirini-event-reporter
+        name: config-map-volume
+      - name: cc-certs
+        secret:
+          optional: true
+          secretName: eirini-internal-tls-certs
+---
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  annotations:
+    seccomp.security.alpha.kubernetes.io/allowedProfileNames: runtime/default
+    seccomp.security.alpha.kubernetes.io/defaultProfileName: runtime/default
+  name: eirini-event-reporter
+spec:
+  allowPrivilegeEscalation: false
+  fsGroup:
+    ranges:
+    - max: 65535
+      min: 1
+    rule: MustRunAs
+  hostIPC: false
+  hostNetwork: false
+  hostPID: false
+  privileged: false
+  readOnlyRootFilesystem: false
+  requiredDropCapabilities:
+  - ALL
+  runAsUser:
+    rule: RunAsAny
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    ranges:
+    - max: 65535
+      min: 1
+    rule: MustRunAs
+  volumes:
+  - configMap
+  - secret
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eirini-event-reporter
+  namespace: cf-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: eirini-event-reporter-nodes-policy
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  - nodes/proxy
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: eirini-event-reporter
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - events
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: eirini-event-reporter-nodes-policy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eirini-event-reporter-nodes-policy
+subjects:
+- kind: ServiceAccount
+  name: eirini-event-reporter
+  namespace: cf-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: eirini-event-reporter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eirini-event-reporter
+subjects:
+- kind: ServiceAccount
+  name: eirini-event-reporter
+  namespace: cf-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: eirini-event-reporter-psp
+  namespace: cf-system
+rules:
+- apiGroups:
+  - policy
+  resourceNames:
+  - eirini-event-reporter
+  resources:
+  - podsecuritypolicies
+  verbs:
+  - use
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: eirini-event-reporter-psp
+  namespace: cf-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: eirini-event-reporter-psp
+subjects:
+- kind: ServiceAccount
+  name: eirini-event-reporter
+  namespace: cf-system
+---
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  annotations:
+    seccomp.security.alpha.kubernetes.io/allowedProfileNames: docker/default,runtime/default
+    seccomp.security.alpha.kubernetes.io/defaultProfileName: runtime/default
+  name: eirini-workloads-app-psp
+spec:
+  allowPrivilegeEscalation: false
+  fsGroup:
+    ranges:
+    - max: 65535
+      min: 1
+    rule: MustRunAs
+  hostIPC: false
+  hostNetwork: false
+  hostPID: false
+  privileged: false
+  readOnlyRootFilesystem: false
+  requiredDropCapabilities:
+  - ALL
+  runAsUser:
+    rule: MustRunAsNonRoot
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    ranges:
+    - max: 65535
+      min: 1
+    rule: MustRunAs
+---
+apiVersion: v1
+automountServiceAccountToken: false
+kind: ServiceAccount
+metadata:
+  name: eirini
+  namespace: cf-workloads
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: eirini-workloads-app-role
+  namespace: cf-workloads
+rules:
+- apiGroups:
+  - policy
+  resourceNames:
+  - eirini-workloads-app-psp
+  resources:
+  - podsecuritypolicies
+  verbs:
+  - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: eirini-workloads-app-rolebinding
+  namespace: cf-workloads
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: eirini-workloads-app-role
+subjects:
+- kind: ServiceAccount
+  name: eirini
+  namespace: cf-workloads
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: eirini-namespaced-role
+  namespace: cf-workloads
+rules:
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - create
+  - update
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - delete
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - create
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: eirini-namespaced-rolebinding
+  namespace: cf-workloads
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: eirini-namespaced-role
+subjects:
+- kind: ServiceAccount
+  name: eirini-api
+  namespace: cf-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: eirini-task-reporter-namespaced
+  namespace: cf-workloads
+rules:
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - delete
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - list
+  - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: eirini-task-reporter-namespaced
+  namespace: cf-workloads
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: eirini-task-reporter-namespaced
+subjects:
+- kind: ServiceAccount
+  name: eirini-task-reporter
+  namespace: cf-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: eirini-event-reporter-namespaced
+  namespace: cf-workloads
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: eirini-event-reporter-namespaced
+  namespace: cf-workloads
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: eirini-event-reporter-namespaced
+subjects:
+- kind: ServiceAccount
+  name: eirini-event-reporter
+  namespace: cf-system

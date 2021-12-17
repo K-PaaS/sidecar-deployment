@@ -1,0 +1,43 @@
+resources:
+- name: cf-for-k8s-images
+  type: git
+  icon: github
+  source:
+    branch: main
+    uri: git@github.com:cloudfoundry/cf-for-k8s
+    private_key: ((cf_for_k8s_readonly_deploy_key.private_key))
+    paths:
+    - images/**
+- name: cf-for-k8s-ci
+  type: git
+  icon: github
+  source:
+    branch: develop
+    uri: git@github.com:cloudfoundry/cf-for-k8s
+    private_key: ((cf_for_k8s_readonly_deploy_key.private_key))
+    paths:
+    - ci/**
+- name: statsd_exporter
+  type: git
+  source:
+    uri: git@github.com:prometheus/statsd_exporter
+    private_key: ((cf_for_k8s_readonly_deploy_key.private_key))
+    tag_regex: ^v0\.[0-9]*\.[0-9]*$
+- name: cf-k8s-prometheus
+  type: git
+  source:
+    uri: git@github.com:cloudfoundry/cf-k8s-prometheus
+    private_key: ((cf_for_k8s_readonly_deploy_key.private_key))
+jobs:
+- name: build-statsd_exporter-cf-for-k8s-image
+  plan:
+  - in_parallel:
+    - get: cf-for-k8s-ci
+    - get: cf-for-k8s-images
+    - get: statsd_exporter
+      trigger: true
+    - get: cf-k8s-prometheus
+  # this tasks build and tags statsd image with latest that later gets picked up by capi and uaa
+  - task: build-statsd-exporter-image
+    file: cf-for-k8s-ci/ci/tasks/build-statsd-exporter-image/task.yml
+    privileged: true

@@ -1,0 +1,113 @@
+#@ load("@ytt:overlay", "overlay")
+#@ load("/namespaces.star", "workloads_namespace")
+#@ load("/namespaces.star", "system_namespace")
+#@ load("istio-version.star", "istio_version")
+
+---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: restart-workloads
+  namespace: #@ workloads_namespace()
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: restart-workloads
+  namespace: #@ workloads_namespace()
+rules:
+  - apiGroups: ["apps", "extensions"]
+    resources: ["statefulsets"]
+    verbs: ["get", "patch", "list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["delete", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: restart-workloads
+  namespace: #@ workloads_namespace()
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: restart-workloads
+subjects:
+  - kind: ServiceAccount
+    name: restart-workloads
+    namespace: #@ workloads_namespace()
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: restart-workloads
+  namespace: istio-system
+rules:
+  - apiGroups: ["apps", "extensions", ""]
+    resources: ["daemonsets","pods","deployments","configmaps"]
+    verbs: ["get", "patch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: restart-workloads
+  namespace: istio-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: restart-workloads
+subjects:
+  - kind: ServiceAccount
+    name: restart-workloads
+    namespace: #@ workloads_namespace()
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: restart-cf-system
+  namespace: #@ system_namespace()
+rules:
+  - apiGroups: ["apps", "extensions", ""]
+    resources: ["daemonsets"]
+    verbs: ["get", "patch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: restart-cf-system
+  namespace: #@ system_namespace()
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: restart-cf-system
+subjects:
+  - kind: ServiceAccount
+    name: restart-workloads
+    namespace: #@ workloads_namespace()
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: #@ "restart-workloads-for-istio" + istio_version().replace(".", "-")
+  namespace: #@ workloads_namespace()
+  annotations:
+    kapp.k14s.io/update-strategy: "skip"
+    kapp.k14s.io/change-group: cf-for-k8s.cloudfoundry.org/upgrade-istio-sidecars
+  labels:
+    cloudfoundry.org/istio_version: #@ istio_version()
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      serviceAccountName: restart-workloads
+      restartPolicy: Never
+      containers:
+        - name: roll
+          image: cloudfoundry/cf-k8s-networking-upgrade-sidecars@sha256:b4b00cc7abfaaf680089029828d48b844df969717566bcb307836a856f8ef8e4
+          env:
+          - name: ISTIO_VERSION
+            value: #@ istio_version()

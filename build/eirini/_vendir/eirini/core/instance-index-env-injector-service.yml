@@ -1,0 +1,15 @@
+---
+# Source: eirini/templates/core/instance-index-env-injector-service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: eirini-instance-index-env-injector
+  namespace: cf-system
+spec:
+  ports:
+    - port: 443
+      targetPort: 8443
+      protocol: TCP
+      name: https
+  selector:
+    name: eirini-instance-index-env-injector

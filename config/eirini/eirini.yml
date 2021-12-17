@@ -1,0 +1,57 @@
+#@ load("@ytt:base64", "base64")
+#@ load("@ytt:data", "data")
+#@ load("@ytt:json", "json")
+#@ load("@ytt:library", "library")
+#@ load("@ytt:overlay", "overlay")
+#@ load("@ytt:template", "template")
+#@ load("@ytt:yaml", "yaml")
+#@ load("/namespaces.star", "system_namespace", "workloads_namespace")
+
+#@ eirini = library.get("eirini")
+--- #@ template.replace(eirini.eval())
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: eirini-instance-index-env-injector-certs
+  namespace: #@ system_namespace()
+stringData:
+  tls.crt: #@ data.values.instance_index_env_injector_certificate.crt
+  tls.key: #@ data.values.instance_index_env_injector_certificate.key
+  tls.ca: #@ data.values.instance_index_env_injector_certificate.ca
+
+#! Allow app traffic from the istio-ingressgateway
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-app-ingress-from-ingressgateway
+  namespace: #@ workloads_namespace()
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          cf-for-k8s.cloudfoundry.org/istio-system-ns: ""
+      podSelector:
+        matchLabels:
+          istio: ingressgateway
+
+#! Add Secret to allow K8s to download app images from the provided registry
+#! https://github.com/cloudfoundry/cf-for-k8s/issues/74
+#! may want to keep the name in sync with https://github.com/cloudfoundry-incubator/eirini-release/blob/9b0db46c8bdc3393c9e79b694081d46c3c4b5a15/helm/values.yaml#L4
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-registry-credentials
+  namespace: #@ workloads_namespace()
+type: kubernetes.io/dockerconfigjson
+data:
+  #@ docker_auth = base64.encode("{}:{}".format(data.values.app_registry.username, data.values.app_registry.password))
+  #@ docker_creds = {"username": data.values.app_registry.username, "password": data.values.app_registry.password, "auth": docker_auth}
+  .dockerconfigjson: #@ base64.encode(json.encode({"auths": {data.values.app_registry.hostname: docker_creds}}))
