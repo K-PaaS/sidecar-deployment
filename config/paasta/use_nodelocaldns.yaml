@@ -1,0 +1,14 @@
+#@ load("@ytt:data", "data")
+#@ load("@ytt:overlay", "overlay")
+
+#@overlay/match by=overlay.subset({"kind":"NetworkPolicy","metadata":{"name":"allow-dns-egress"}}), expects="1+"
+---
+spec:
+  egress:
+  #@overlay/match by=overlay.all, expects="1+"
+  - to:
+    #@overlay/match by=overlay.index(0)
+    #@overlay/insert before=True
+    - ipBlock:
+        #@overlay/match missing_ok=True
+        cidr: 169.254.25.10/32
