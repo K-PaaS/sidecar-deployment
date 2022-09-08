@@ -3,9 +3,9 @@
 echo "------------------"
 echo "ytt & kapp install"
 echo "------------------"
-sudo su -c "wget -O- https://k14s.io/install.sh | bash"
-sudo chown $(id -u):$(id -g) /usr/local/bin/ytt
-sudo chown $(id -u):$(id -g) /usr/local/bin/kapp
+wget -O- https://carvel.dev/install.sh > install.sh
+sudo bash install.sh
+rm install.sh
 
 echo "------------------"
 echo "bosh cli install"
