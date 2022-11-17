@@ -72,6 +72,10 @@ else
         return
 fi
 
+## Portal Web User Setting
+cat << EOF >> ./manifest/sidecar-values.yml
+webuser_name: ${webuser_name}
+EOF
 
 ## External Blobstore Setting
 if [[ ${use_external_blobstore} = "true" ]]; then
