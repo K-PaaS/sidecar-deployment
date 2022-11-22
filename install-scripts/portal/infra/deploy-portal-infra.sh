@@ -1,5 +1,5 @@
 #!/bin/bash
-
+  
 source infra-variable.yml
 source ../portal-app-variable.yml
 
@@ -9,7 +9,7 @@ ENV=$NAMESPACE_NAME yq e -i '.metadata.name = env(ENV)' etc/namespace.yaml
 ENV=$NAMESPACE_NAME yq e -i '.metadata.namespace = env(ENV)' mariadb/mariadb-secret.yaml
 ENV=$NAMESPACE_NAME yq e -i '.metadata.namespace = env(ENV)' mariadb/mariadb-service.yaml
 ENV=$NAMESPACE_NAME yq e -i '.metadata.namespace = env(ENV)' mariadb/mariadb-statefulset.yaml
-ENV=$NAMESPACE_NAME yq e -i '.metadata.namespace = env(ENV)' mariadb/mariadb-initsql.yaml
+sed -i '/namespace:/ c\  namespace: '$NAMESPACE_NAME'' mariadb/mariadb-initsql.yaml
 
 ENV=$NAMESPACE_NAME yq e -i '.metadata.namespace = env(ENV)' saio/saio-service.yaml
 ENV=$NAMESPACE_NAME yq e -i '.metadata.namespace = env(ENV)' saio/saio-statefulset.yaml
@@ -37,20 +37,19 @@ SYSTEM_DOMAIN=$(yq e '.system_domain' $SIDECAR_VALUES_PATH)
 APP_DOMAIN=$(yq e '.app_domains[0]' $SIDECAR_VALUES_PATH)
 # mariadb-initsql.yaml
 ## PORTAL_NAME
-sed -i -e 's/<%= p("portal_default.name") %>/'$PORTAL_NAME'/g' mariadb-initsql.yaml
+sed -i -e 's/<%= p("portal_default.name") %>/'$PORTAL_NAME'/g' mariadb/mariadb-initsql.yaml
 
 ## PORTAL_GATEWAY_URL
-sed -i -e 's/<%= p("portal_default.url") %>/http:\/\/portal-gateway.'${APP_DOMAIN}'/g' mariadb-initsql.yaml
+sed -i -e 's/<%= p("portal_default.url") %>/http:\/\/portal-gateway.'$APP_DOMAIN'/g' mariadb/mariadb-initsql.yaml
 
 ## PORTAL_UAA_URL
-sed -i -e 's/<%= p("portal_default.uaa_url") %>/https:\/\/uaa.'${SYSTEM_DOMAIN}'/g' mariadb-initsql.yaml
+sed -i -e 's/<%= p("portal_default.uaa_url") %>/https:\/\/uaa.'$SYSTEM_DOMAIN'/g' mariadb/mariadb-initsql.yaml
 
 ## PORTAL_HEADER_AUTH
-sed -i -e 's/<%= p("portal_default.header_auth") %>/'$PORTAL_HEADER_AUTH'/g' mariadb-initsql.yaml
+sed -i -e "s/<%= p(\"portal_default.header_auth\") %>/$PORTAL_HEADER_AUTH/g" mariadb/mariadb-initsql.yaml
 
 ## PORTAL_DESC
-sed -i -e 's/<%= p("portal_default.desc") %>/'$PORTAL_DESC'/g' mariadb-initsql.yaml
-
+sed -i -e "s/<%= p(\"portal_default.desc\") %>/$PORTAL_DESC/g" mariadb/mariadb-initsql.yaml
 
 # saio-service.yaml
 ## KEYSTONE_SERVICE_PORT
@@ -87,11 +86,10 @@ ENV=$PROXY_TARGET_PORT yq e -i '(.spec.template.spec.containers[0].env[5].value 
 ENV=$PORTAL_OBJECTSTORAGE_TENANTNAME yq e -i '(.spec.template.spec.containers[0].env[7].value = env(ENV)' saio/saio-statefulset.yaml
 
 ## PORTAL_OBJECTSTORAGE_USERNAME
-ENV=$PORTAL_OBJECTSTORAGE_TENANTNAME yq e -i '(.spec.template.spec.containers[0].env[8].value = env(ENV)' saio/saio-statefulset.yaml
+ENV=$PORTAL_OBJECTSTORAGE_USERNAME yq e -i '(.spec.template.spec.containers[0].env[8].value = env(ENV)' saio/saio-statefulset.yaml
 
 ## PORTAL_OBJECTSTORAGE_PASSWORD
-ENV=$PORTAL_OBJECTSTORAGE_TENANTNAME yq e -i '(.spec.template.spec.containers[0].env[9].value = env(ENV)' saio/saio-statefulset.yaml
-
+ENV=$PORTAL_OBJECTSTORAGE_PASSWORD yq e -i '(.spec.template.spec.containers[0].env[9].value = env(ENV)' saio/saio-statefulset.yaml
 
 
 # allow-cf-db-ingress-from-cf-workloads.yaml
@@ -108,3 +106,9 @@ sed -i '/cloudfoundry.org\/org_name/ c\      cloudfoundry.org\/org_name: '$PORTA
 
 ## SPACE
 sed -i '/cloudfoundry.org\/space_name/ c\      cloudfoundry.org\/space_name: '$PORTAL_SPACE_NAME'' etc/portal-sidecar.yaml
+
+
+kubectl apply -f etc
+kubectl apply -f mariadb
+sleep 5
+kubectl apply -f saio
