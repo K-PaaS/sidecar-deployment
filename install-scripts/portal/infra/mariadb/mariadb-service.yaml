@@ -1,0 +1,12 @@
+#SVC
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb
+  namespace: paasta
+spec:
+  ports:
+    - port: 13306
+      targetPort: 13306
+  selector:
+    app: mariadb
