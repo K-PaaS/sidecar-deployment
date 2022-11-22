@@ -20,7 +20,7 @@ app_registry_cert_path=support-files/private-repository.ca  # if is_self_signed_
 
 ## PORTAL Variable
 webuser_name="portal-web-user"
-
+uaa_client_portal_secret="clientsecret"
 
 ## EXTERNAL BLOBSTORE VARIABLE (Option)
 use_external_blobstore=false                                # (e.g. true or false)

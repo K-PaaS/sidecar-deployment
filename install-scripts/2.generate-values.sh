@@ -75,6 +75,7 @@ fi
 ## Portal Web User Setting
 cat << EOF >> ./manifest/sidecar-values.yml
 webuser_name: ${webuser_name}
+uaa_client_portal_secret: ${uaa_client_portal_secret}
 EOF
 
 ## External Blobstore Setting
