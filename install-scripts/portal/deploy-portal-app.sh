@@ -21,13 +21,10 @@ PORTAL_SSH=portal-ssh-1.0.0
 # language list check
 PORTAL_WEB_USER_INPUT_LANG='ko,en'
 PORTAL_WEB_ADMIN_INPUT_LANG='ko,en'
-echo 1
 IFS=',' read -r -a PORTAL_WEB_USER_LANG <<< "$PORTAL_WEB_USER_INPUT_LANG"
 IFS=',' read -r -a PORTAL_WEB_ADMIN_LANG <<< "$PORTAL_WEB_ADMIN_INPUT_LANG"
-echo 2
 #WEB_USER_LANG_COMP=($(printf "%s\n" "${PORTAL_WEB_USER_LANG[@]}" /| sort -u))
 #WEB_ADMIN_LANG_COMP=($(printf "%s\n" "${PORTAL_WEB_ADMIN_LANG[@]}" | sort -u))
-echo 3
 PORTAL_WEB_USER_LANGUAGE=()
 for lang in ${PORTAL_WEB_USER_LANG[@]}
 do
@@ -35,7 +32,6 @@ do
                 PORTAL_WEB_USER_LANGUAGE+=($lang)
         fi
 done
-echo 4
 PORTAL_WEB_ADMIN_LANGUAGE=()
 for lang in ${PORTAL_WEB_ADMIN_LANG[@]}
 do
