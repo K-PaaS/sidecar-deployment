@@ -17,7 +17,7 @@ ENV=$NAMESPACE_NAME yq e -i '.metadata.namespace = env(ENV)' saio/saio-statefuls
 
 # mariadb-secret.yaml
 ## MARIADB PASSWORD
-ENV=$(echo $MARIADB_PASSWORD | base64 ) yq e -i '(.data.password = env(ENV)' mariadb/mariadb-secret.yaml
+ENV=$(echo -n $MARIADB_PASSWORD | base64 ) yq e -i '(.data.password = env(ENV)' mariadb/mariadb-secret.yaml
 
 
 # mariadb-service.yaml
