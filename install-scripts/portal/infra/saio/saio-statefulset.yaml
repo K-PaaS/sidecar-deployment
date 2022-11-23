@@ -29,7 +29,7 @@ spec:
             - name: SWIFT_ADDRESS
               value: "openstack-swift-keystone-docker.paasta.svc.cluster.local"
             - name: KEYSTONE_PORT
-              value: "15001"
+              value: "25001"
             - name: PROXY_PORT
               value: "10008"
             - name: PORTAL_OPENSTACK_REGION

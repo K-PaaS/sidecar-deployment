@@ -6,8 +6,8 @@ metadata:
   namespace: paasta
 spec:
   ports:
-    - port: 15001
-      targetPort: 15001
+    - port: 25001
+      targetPort: 25001
       name: keystone
     - port: 10008
       targetPort: 10008
