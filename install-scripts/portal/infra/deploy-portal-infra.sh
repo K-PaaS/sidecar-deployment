@@ -31,6 +31,7 @@ ENV=$MARIADB_CONTAINER_PORT yq e -i '(.spec.ports[0].targetPort = env(ENV)' mari
 # mariadb-statefulset.yaml
 ## MARIADB_CONTAINER_PORT
 ENV=$MARIADB_CONTAINER_PORT yq e -i '(.spec.template.spec.containers[0].ports[0].containerPort = env(ENV)' mariadb/mariadb-statefulset.yaml
+ENV=$MARIADB_CONTAINER_PORT yq e -i '(.spec.template.spec.containers[0].env[0].value = env(ENV)' mariadb/mariadb-statefulset.yaml
 
 
 SYSTEM_DOMAIN=$(yq e '.system_domain' $SIDECAR_VALUES_PATH)
@@ -73,23 +74,28 @@ ENV=$MARIADB_SERVICE_PORT yq e -i '(.spec.template.spec.containers[0].env[1].val
 ## MARIADB_PASSWORD
 ENV=$MARIADB_PASSWORD yq e -i '(.spec.template.spec.containers[0].env[2].value = env(ENV)' saio/saio-statefulset.yaml
 
+## MARIADB_ADDRESS
+ENV="mariadb."$NAMESPACE_NAME".svc.cluster.local" yq e -i '(.spec.template.spec.containers[0].env[3].value = env(ENV)' saio/saio-statefulset.yaml
+
 ## SWIFT_ADDRESS
-ENV="openstack-swift-keystone-docker."$NAMESPACE_NAME".svc.cluster.local" yq e -i '(.spec.template.spec.containers[0].env[3].value = env(ENV)' saio/saio-statefulset.yaml
+ENV="openstack-swift-keystone-docker."$NAMESPACE_NAME".svc.cluster.local" yq e -i '(.spec.template.spec.containers[0].env[4].value = env(ENV)' saio/saio-statefulset.yaml
 
 ## KEYSTONE_CONTAINER_PORT
-ENV=$KEYSTONE_CONTAINER_PORT yq e -i '(.spec.template.spec.containers[0].env[4].value = env(ENV)' saio/saio-statefulset.yaml
+ENV=$KEYSTONE_CONTAINER_PORT yq e -i '(.spec.template.spec.containers[0].env[5].value = env(ENV)' saio/saio-statefulset.yaml
+ENV=$KEYSTONE_CONTAINER_PORT yq e -i '(.spec.template.spec.containers[0].ports[0].containerPort = env(ENV)' saio/saio-statefulset.yaml
+
 
 ## PROXY_TARGET_PORT
-ENV=$PROXY_TARGET_PORT yq e -i '(.spec.template.spec.containers[0].env[5].value = env(ENV)' saio/saio-statefulset.yaml
+ENV=$PROXY_TARGET_PORT yq e -i '(.spec.template.spec.containers[0].env[6].value = env(ENV)' saio/saio-statefulset.yaml
 
 ## PORTAL_OBJECTSTORAGE_TENANTNAME
-ENV=$PORTAL_OBJECTSTORAGE_TENANTNAME yq e -i '(.spec.template.spec.containers[0].env[7].value = env(ENV)' saio/saio-statefulset.yaml
+ENV=$PORTAL_OBJECTSTORAGE_TENANTNAME yq e -i '(.spec.template.spec.containers[0].env[8].value = env(ENV)' saio/saio-statefulset.yaml
 
 ## PORTAL_OBJECTSTORAGE_USERNAME
-ENV=$PORTAL_OBJECTSTORAGE_USERNAME yq e -i '(.spec.template.spec.containers[0].env[8].value = env(ENV)' saio/saio-statefulset.yaml
+ENV=$PORTAL_OBJECTSTORAGE_USERNAME yq e -i '(.spec.template.spec.containers[0].env[9].value = env(ENV)' saio/saio-statefulset.yaml
 
 ## PORTAL_OBJECTSTORAGE_PASSWORD
-ENV=$PORTAL_OBJECTSTORAGE_PASSWORD yq e -i '(.spec.template.spec.containers[0].env[9].value = env(ENV)' saio/saio-statefulset.yaml
+ENV=$PORTAL_OBJECTSTORAGE_PASSWORD yq e -i '(.spec.template.spec.containers[0].env[10].value = env(ENV)' saio/saio-statefulset.yaml
 
 
 # allow-cf-db-ingress-from-cf-workloads.yaml

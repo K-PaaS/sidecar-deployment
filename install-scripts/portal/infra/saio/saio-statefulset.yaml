@@ -24,6 +24,8 @@ spec:
               value: "13306"
             - name: MARIADB_ADMIN_PASSWORD
               value: "Paasta@2022"
+            - name: MARIADB_ADDRESS
+              value: "mariadb.paasta.svc.cluster.local"
             - name: SWIFT_ADDRESS
               value: "openstack-swift-keystone-docker.paasta.svc.cluster.local"
             - name: KEYSTONE_PORT
@@ -38,7 +40,6 @@ spec:
               value: "paasta-portal"
             - name: PORTAL_OPENSTACK_USER_PASSWORD
               value: "paasta"
-
           ports:
             - containerPort: 2022 # Container 포트
               name: openstack-swift
