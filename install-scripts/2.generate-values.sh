@@ -78,6 +78,12 @@ webuser_name: ${webuser_name}
 uaa_client_portal_secret: ${uaa_client_portal_secret}
 EOF
 
+## istio gateway use http
+cat << EOF >> ./manifest/sidecar-values.yml
+gateway:
+  https_only: false
+EOF
+
 ## External Blobstore Setting
 if [[ ${use_external_blobstore} = "true" ]]; then
   cp support-files/external-blobstore-values.yml manifest/ -f
