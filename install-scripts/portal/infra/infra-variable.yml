@@ -1,21 +1,21 @@
 #!/bin/bash
 
 ##PORTAL VARIABLE
-NAMESPACE_NAME="paasta"
-PORTAL_NAME="PaaS-TA"
-PORTAL_HEADER_AUTH="Basic YWRtaW46b3BlbnBhYXN0YQ=="
-PORTAL_DESC="PaaS-TA infra"
+NAMESPACE_NAME="paasta"                                 # Infra Namespace(Kubernetes) Name
+PORTAL_NAME="PaaS-TA"                                   # Portal default api name
+PORTAL_HEADER_AUTH="Basic YWRtaW46b3BlbnBhYXN0YQ=="     # Portal default header auth
+PORTAL_DESC="PaaS-TA infra"                             # Portal default api descrition 
 
 ## MARIADB VARIABLE
-MARIADB_PASSWORD=Paasta@2022
-MARIADB_SERVICE_PORT=13306
-MARIADB_CONTAINER_PORT=13306
+MARIADB_PASSWORD=Paasta@2022                            # MariaDB Password
+MARIADB_SERVICE_PORT=13306                              # MariaDB Service Port (e.g. 13306)
+MARIADB_CONTAINER_PORT=13306                            # MariaDB Container Port (e.g. 13306)
 
 ## OPENSTACK SWIFT KETSTONE VARIABLE
-KEYSTONE_SERVICE_PORT=25001
-KEYSTONE_CONTAINER_PORT=25001
-PROXY_SERVICE_PORT=10008
-PROXY_TARGET_PORT=10008
-PORTAL_OBJECTSTORAGE_TENANTNAME=paasta-portal
-PORTAL_OBJECTSTORAGE_USERNAME=paasta-portal
-PORTAL_OBJECTSTORAGE_PASSWORD=paasta
+KEYSTONE_SERVICE_PORT=25001                             # Keystone Service Port
+KEYSTONE_CONTAINER_PORT=25001                           # Keystone Container Port
+PROXY_SERVICE_PORT=10008                                # Proxy Service Port
+PROXY_TARGET_PORT=10008                                 # Proxy Target Port
+PORTAL_OBJECTSTORAGE_TENANTNAME=paasta-portal           # Binary storage tenantname
+PORTAL_OBJECTSTORAGE_USERNAME=paasta-portal             # Binary storage username
+PORTAL_OBJECTSTORAGE_PASSWORD=paasta                    # Binary storage password
