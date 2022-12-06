@@ -17,6 +17,11 @@ is_self_signed_certificate=false                            # is private registr
 app_registry_cert_path=support-files/private-repository.ca  # if is_self_signed_certificate==true --> add the contents of the private-repository.ca file
                                                             # if is_self_signed_certificate==false --> private-repository.ca is empty
 
+
+## PORTAL Variable
+webuser_name="portal-web-user"
+uaa_client_portal_secret="clientsecret"
+
 ## EXTERNAL BLOBSTORE VARIABLE (Option)
 use_external_blobstore=false                                # (e.g. true or false)
 external_blobstore_ip=192.50.50.50                          # Blobstore Address (e.g. 127.0.0.1) 

@@ -99,3 +99,6 @@ system_registry:
   password: ""
 
 is_self_signed_certificate: true
+webuser_name: "portal-webuser"
+uaa_client_portal_secret: "clientsecret"
+

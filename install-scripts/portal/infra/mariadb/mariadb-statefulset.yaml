@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mariadb
+  namespace: paasta
+spec:
+  serviceName: mariadb
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mariadb
+  template:
+    metadata:
+      labels:
+        app: mariadb
+    spec:
+      initContainers:
+        - name: mariadb-create-directory-structure
+          image: busybox
+          command: ["sh", "-c", "/bin/mkdir -p /bitnami/mariadb/data && /bin/chmod -R 777 /bitnami/mariadb"]
+          volumeMounts:
+            - name: mariadb-data
+              mountPath: /bitnami/mariadb
+      containers:
+        - image: docker.io/bitnami/mariadb:10.7 #mariadb:10.5.15 # MariaDB 이미지 
+          name: mariadb
+          ports:
+            - containerPort: 13306 # Container 포트
+              name: mariadb
+          volumeMounts:
+            - name: mysql-initdb
+              mountPath: /docker-entrypoint-initdb.d
+            - name: mariadb-data
+              mountPath: /bitnami/mariadb
+          env:
+            - name: MARIADB_PORT_NUMBER
+              value: "13306"
+            - name: MARIADB_ROOT_PASSWORD #MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mariadb-secret # Secret의 이름
+                  key: password # Secret의 data에 들어간 key:value
+      volumes:
+        - name: mysql-initdb
+          configMap:
+            name: mysql-initdb-config
+  volumeClaimTemplates:
+    - metadata:
+        name: mariadb-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 300M

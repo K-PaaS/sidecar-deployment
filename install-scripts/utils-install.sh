@@ -24,3 +24,12 @@ echo "deb https://packages.cloudfoundry.org/debian stable main" | sudo tee /etc/
 sudo apt-get update
 sudo apt-get install cf7-cli -y
 cf -v
+
+echo "------------------"
+echo "yq cli install"
+echo "------------------"
+curl -L https://github.com/mikefarah/yq/releases/download/v4.30.4/yq_linux_amd64 -o yq
+chmod +x yq
+sudo mv yq /usr/local/bin/
+yq --version
+
