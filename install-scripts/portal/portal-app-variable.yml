@@ -1,6 +1,7 @@
 #!/bin/bash
 
 SIDECAR_VALUES_PATH=~/sidecar-deployment/install-scripts/manifest/sidecar-values.yml     # sidecar-values.yml Path
+VARIABLES_PATH=~/sidecar-deployment/install-scripts/variables.yml     # variables.yml Path
 PORTAL_APP_WORKING_DIRECTORY=~/sidecar-deployment/install-scripts/portal/portal-app # Portal APP Working Path
 
 

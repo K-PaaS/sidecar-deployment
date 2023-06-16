@@ -60,4 +60,5 @@ influxdb_password=PaaS-TA2020                               # InfluxDB Password
 influxdb_https_enabled=true                                 # (e.g. true or false)
 influxdb_database=logging_db                                # InfluxDB DB Name
 influxdb_measurement=logging_measurement                    # InfluxDB Measurement Name
-influxdb_time_precision=s                                   # Level of timestamp stored (hour(h), minutes(m), second(s), millisecond(ms), microsecond(u), nanosecond(ns))
+influxdb_limit=50                                           # InfluxDB query limit
+influxdb_time_precision=s                                   # Level of timestamp stored (hour(h), minutes(m), second(s), millisecond(ms), microsecond(u), nanosecond(ns)
