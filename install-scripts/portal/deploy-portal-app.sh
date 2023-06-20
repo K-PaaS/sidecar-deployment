@@ -3,7 +3,7 @@
 source portal-app-variable.yml
 
 PORTALAPPNAME=portal-app-1.2.13
-PORTALAPPDOWNLOADLINK=https://nextcloud.paas-ta.org/index.php/s/WrfpBniYbX8sSm5/download
+PORTALAPPDOWNLOADLINK=https://nextcloud.paas-ta.org/index.php/s/6aanBz8osifGnQZ/download
 
 #########################################
 # Portal Component Folder Name
