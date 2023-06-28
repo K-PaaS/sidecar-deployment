@@ -62,7 +62,7 @@
         @type record_transformer
         enable_ruby true
         <record>
-          app_log <influxdb_measurement>,id="${record.dig("app_id")}" message="\{\\\"cf_app_id\\\"\:\\\"${record.dig("app_id")}\\\"\,\\\"msg\\\"\:\\\"${record.dig("log").gsub(/([^A-Za-z0-9_])/,'\\\\\1')}\\\"\,\\\"instance_id\\\"\:\\\"${record.dig("instance_id")}\\\"\}"
+          app_log <INFLUXDB_MEASUREMENT>,id="${record.dig("app_id")}" message="\{\\\"cf_app_id\\\"\:\\\"${record.dig("app_id")}\\\"\,\\\"msg\\\"\:\\\"${record.dig("log").gsub(/([^A-Za-z0-9_])/,'\\\\\1')}\\\"\,\\\"instance_id\\\"\:\\\"${record.dig("instance_id")}\\\"\}"
         </record>
       </filter>
 
@@ -83,7 +83,7 @@
         </store>
         <store ignore_error>
           @type http
-          endpoint <influxdb_url>/write?db=<influxdb_database>&u=<influxdb_username>&p=<influxdb_password>&precision=<influxdb_time_precision>
+          endpoint <INFLUXDB_URL>/write?db=<INFLUXDB_DATABASE>&u=<INFLUXDB_USERNAME>&p=<INFLUXDB_PASSWORD>&precision=<INFLUXDB_TIME_PRECISION>
           http_method post
           <format>
             @type single_value

@@ -48,17 +48,3 @@ external_uaa_db_password=uaa_admin                          # UAA DB Password
 external_uaa_db_name=uaa                                    # UAA DB Name
 external_db_cert_path=support-files/db.ca                   # if DB use cert --> add the contents of the db.ca file
                                                             # if DB don't use cert --> db.ca is empty
-
-
-## LOGGING VARIABLE
-use_logging_service=false                                   # (e.g. true or false)
-logging_output_plugin=influxdb                              # Logging output plugin (influxdb or http) --> recommend using influxdb plugin
-influxdb_ip=10.100.120.120                                  # InfluxDB IP
-influxdb_http_port=8086                                     # InfluxDB Port
-influxdb_username=admin                                     # InfluxDB Username
-influxdb_password=PaaS-TA2020                               # InfluxDB Password
-influxdb_https_enabled=true                                 # (e.g. true or false)
-influxdb_database=logging_db                                # InfluxDB DB Name
-influxdb_measurement=logging_measurement                    # InfluxDB Measurement Name
-influxdb_limit=50                                           # InfluxDB query limit
-influxdb_time_precision=s                                   # Level of timestamp stored (hour(h), minutes(m), second(s), millisecond(ms), microsecond(u), nanosecond(ns)

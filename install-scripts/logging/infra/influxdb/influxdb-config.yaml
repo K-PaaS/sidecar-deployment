@@ -1,0 +1,107 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: influxdb-config
+  namespace: logging
+data:
+  influxdb.conf: |
+    reporting-disabled = true
+    bind-address = ":8088"
+
+    [meta]
+      dir = "/var/lib/influxdb/meta"
+      retention-autocreate = true
+      logging-enabled = true
+      pprof-enabled = false
+      lease-duration = "1m0s"
+
+    [data]
+      dir = "/var/lib/influxdb/data"
+      wal-dir = "/var/vcap/store/influxdb/wal"
+      engine = "tsm1"
+
+      wal-logging-enabled = true
+      query-log-enabled = true
+      cache-max-memory-size = 524288000
+      cache-snapshot-memory-size = 26214400
+      cache-snapshot-write-cold-duration = "1h0m0s"
+      compact-full-write-cold-duration = "24h0m0s"
+      max-points-per-block = 0
+      data-logging-enabled = true
+
+    [coordinator]
+      write-timeout = "10s"
+      max-concurrent-queries = 0
+      query-timeout = "0s"
+      log-queries-after = "0s"
+      max-select-point = 0
+      max-select-series = 0
+      max-select-buckets = 0
+
+    [retention]
+      enabled = true
+      check-interval = "30m0s"
+
+    [shard-precreation]
+      enabled = true
+      check-interval = "10m0s"
+      advance-period = "30m0s"
+
+    [monitor]
+      store-enabled = true
+      store-database = "_internal"
+      store-interval = "10s"
+
+    [subscriber]
+      enabled = true
+      http-timeout = "30s"
+
+    [http]
+      enabled = true
+      bind-address = ":<%= p("influxdb.http.bind-address") %>"
+      auth-enabled = true
+      log-enabled = true
+      write-tracing = false
+      pprof-enabled = false
+      https-enabled = <%= p("influxdb.https_enabled") %>
+      https-certificate = "/etc/ssl/influx_cert.crt"
+      https-private-key = "/etc/ssl/influx_private.key"
+      max-row-limit = 10000
+      max-connection-limit = 0
+      shared-secret = ""
+
+    [continuous_queries]
+      log-enabled = true
+      enabled = true
+      run-interval = "1s"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: influxdb-init-script
+  namespace: logging
+data:
+  init.sh: |
+    #!/bin/sh
+
+    # Read the credentials from the file
+    HTTPS_ENABLED=$(cat /etc/influxdb/secret/httpsEnabled)
+    HTTP_PORT=$(cat /etc/influxdb/secret/httpPort)
+    USERNAME=$(cat /etc/influxdb/secret/username)
+    PASSWORD=$(cat /etc/influxdb/secret/password)
+    DATABASE=$(cat /etc/influxdb/secret/database)
+    RETENTION_POLICY=$(cat /etc/influxdb/secret/retentionPolicy)
+
+    # Set HTTPS option
+    HTTPS_OPT="-ssl -unsafeSsl"
+
+    if [ "${HTTPS_ENABLED}" = "false" ]; then
+        HTTPS_OPT=
+    fi
+
+    # Create user
+    influx ${HTTPS_OPT} -port ${HTTP_PORT} -execute "CREATE USER ${USERNAME} WITH PASSWORD '${PASSWORD}' WITH ALL PRIVILEGES"
+
+    # Create DB
+    influx ${HTTPS_OPT} -port ${HTTP_PORT} -username ${USERNAME} -password ${PASSWORD} -execute "CREATE DATABASE ${DATABASE} WITH DURATION ${RETENTION_POLICY} REPLICATION 1 NAME \"default\""
+    influx ${HTTPS_OPT} -port ${HTTP_PORT} -username ${USERNAME} -password ${PASSWORD} -execute "GRANT ALL ON ${DATABASE} TO ${USERNAME}"

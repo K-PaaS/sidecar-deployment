@@ -366,32 +366,35 @@ find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API/manifest.ym
 
 
 ## PORTAL-LOG-API
+source $LOGGING_WORKING_DIRECTORY/infra/infra-variable.yml
+source $LOGGING_WORKING_DIRECTORY/logging-service-variable.yml
+
 # LOGGING_INFLUXDB_IP
-find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_IP>/'${influxdb_ip}'/g'
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_IP>/'${INFLUXDB_IP}'/g'
 
 # LOGGING_INFLUXDB_PORT
-find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_PORT>/'${influxdb_http_port}'/g'
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_PORT>/'${INFLUXDB_HTTP_PORT}'/g'
 
 # LOGGING_INFLUXDB_USERNAME
-find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_USERNAME>/'${influxdb_username}'/g'
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_USERNAME>/'${INFLUXDB_USERNAME}'/g'
 
 # LOGGING_INFLUXDB_PASSWORD
-find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_PASSWORD>/'${influxdb_password}'/g'
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_PASSWORD>/'${INFLUXDB_PASSWORD}'/g'
 
 # LOGGING_INFLUXDB_DATABASE
-find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_DATABASE>/'${influxdb_database}'/g'
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_DATABASE>/'${INFLUXDB_DATABASE}'/g'
 
 # LOGGING_INFLUXDB_MEASUREMENT
-find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_MEASUREMENT>/'${influxdb_measurement}'/g'
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_MEASUREMENT>/'${INFLUXDB_MEASUREMENT}'/g'
 
 # LOGGING_INFLUXDB_LIMIT
-find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_LIMIT>/'${influxdb_limit}'/g'
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_LIMIT>/'${INFLUXDB_LIMIT}'/g'
 
 # LOGGING_INFLUXDB_HTTPS_ENABLED
-find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_HTTPS_ENABLED>/'${influxdb_https_enabled}'/g'
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_HTTPS_ENABLED>/'${INFLUXDB_HTTPS_ENABLED}'/g'
 
 # LOGGING_INFLUXDB_URL
-if [[ ${influxdb_https_enabled} = false ]]; then
+if [[ ${INFLUXDB_HTTPS_ENABLED} = false ]]; then
         find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/influxdb_url: https/influxdb_url: http/g'
 fi
 
@@ -541,7 +544,7 @@ cf push -i $PORTAL_STORAGE_API_INSTANCE -f $PORTAL_APP_WORKING_DIRECTORY/$PORTAL
 cf push -i $PORTAL_WEB_ADMIN_INSTANCE -f $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_ADMIN/manifest.yml -b paketo-buildpacks/java
 cf push -i $PORTAL_WEB_USER_INSTANCE -f $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/manifest.yml -b paketo-buildpacks/nginx
 
-if [[ ${use_logging_service} = true ]]; then
+if [[ ${ENABLE_LOGGING_SERVICE} = true ]]; then
         cf push -f $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -b paketo-buildpacks/java
 fi
 

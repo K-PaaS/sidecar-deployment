@@ -74,17 +74,17 @@
 
       <match **>
         @type influxdb
-        host <influxdb_ip>
-        port <influxdb_http_port>
-        user <influxdb_username>
-        password <influxdb_password>
-        dbname <influxdb_database>
-        measurement <influxdb_measurement>
-        time_precision <influxdb_time_precision>
+        host <INFLUXDB_IP>
+        port <INFLUXDB_HTTP_PORT>
+        user <INFLUXDB_USERNAME>
+        password <INFLUXDB_PASSWORD>
+        dbname <INFLUXDB_DATABASE>
+        measurement <INFLUXDB_MEASUREMENT>
+        time_precision <INFLUXDB_TIME_PRECISION>
         tag_keys ["id"]
         time_key time
         flush_interval 60
-        use_ssl <influxdb_https_enabled>
+        use_ssl <INFLUXDB_HTTPS_ENABLED>
         verify_ssl false
         sequence_tag _seq
       </match>
