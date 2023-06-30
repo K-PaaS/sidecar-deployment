@@ -2,19 +2,19 @@
 
 source portal-app-variable.yml
 
-PORTALAPPNAME=portal-app-1.2.11
-PORTALAPPDOWNLOADLINK=https://nextcloud.paas-ta.org/index.php/s/iCeA5iH8yYsNfka/download
+PORTALAPPNAME=portal-app-1.2.13
+PORTALAPPDOWNLOADLINK=https://nextcloud.paas-ta.org/index.php/s/6aanBz8osifGnQZ/download
 
 #########################################
 # Portal Component Folder Name
 PORTAL_API=portal-api-2.4.3
 PORTAL_COMMON_API=portal-common-api-2.2.6
-PORTAL_GATEWAY=portal-gateway-2.1.1
-PORTAL_LOG_API=portal-log-api-2.3.0
+PORTAL_GATEWAY=portal-gateway-2.1.2
+PORTAL_LOG_API=portal-log-api-2.3.2
 PORTAL_REGISTRATION=portal-registration-2.1.0
 PORTAL_STORAGE_API=portal-storage-api-2.2.1
 PORTAL_WEB_ADMIN=portal-web-admin-2.3.5
-PORTAL_WEB_USER=portal-web-user-2.4.8
+PORTAL_WEB_USER=portal-web-user-2.4.9
 PORTAL_SSH=portal-ssh-1.0.0
 
 #########################################
@@ -365,6 +365,41 @@ find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API/manifest.ym
 
 
 
+## PORTAL-LOG-API
+source $LOGGING_WORKING_DIRECTORY/infra/infra-variable.yml
+source $LOGGING_WORKING_DIRECTORY/logging-service-variable.yml
+
+# LOGGING_INFLUXDB_IP
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_IP>/'${INFLUXDB_IP}'/g'
+
+# LOGGING_INFLUXDB_PORT
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_PORT>/'${INFLUXDB_HTTP_PORT}'/g'
+
+# LOGGING_INFLUXDB_USERNAME
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_USERNAME>/'${INFLUXDB_USERNAME}'/g'
+
+# LOGGING_INFLUXDB_PASSWORD
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_PASSWORD>/'${INFLUXDB_PASSWORD}'/g'
+
+# LOGGING_INFLUXDB_DATABASE
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_DATABASE>/'${INFLUXDB_DATABASE}'/g'
+
+# LOGGING_INFLUXDB_MEASUREMENT
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_MEASUREMENT>/'${INFLUXDB_MEASUREMENT}'/g'
+
+# LOGGING_INFLUXDB_LIMIT
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_LIMIT>/'${INFLUXDB_LIMIT}'/g'
+
+# LOGGING_INFLUXDB_HTTPS_ENABLED
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<LOGGING_INFLUXDB_HTTPS_ENABLED>/'${INFLUXDB_HTTPS_ENABLED}'/g'
+
+# LOGGING_INFLUXDB_URL
+if [[ ${INFLUXDB_HTTPS_ENABLED} = false ]]; then
+        find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/influxdb_url: https/influxdb_url: http/g'
+fi
+
+
+
 ## PORTAL-STORAGE-API
 # OBJECTSTORAGE_TENANTNAME
 find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_STORAGE_API/manifest.yml -type f | xargs sed -i -e 's/<OBJECTSTORAGE_TENANTNAME>/'${OBJECTSTORAGE_TENANTNAME}'/g'
@@ -435,6 +470,8 @@ find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/config -type 
 # TAIL_LOG_INTERVAL
 find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/config -type f | xargs sed -i -e 's/<TAIL_LOG_INTERVAL>/'${TAIL_LOG_INTERVAL}'/g'
 
+# PAASTA_DEPLOY_TYPE
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/config -type f | xargs sed -i -e 's/<PAASTA_DEPLOY_TYPE>/'${API_TYPE}'/g'
 
 # PORTAL_USE_LANGUAGE
 PORTAL_WEB_USER_USE_LANG_LIST=$(echo "[\"${PORTAL_WEB_USER_LANGUAGE[*]}\"]" | sed 's/ /\",\"/g')
@@ -507,6 +544,9 @@ cf push -i $PORTAL_STORAGE_API_INSTANCE -f $PORTAL_APP_WORKING_DIRECTORY/$PORTAL
 cf push -i $PORTAL_WEB_ADMIN_INSTANCE -f $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_ADMIN/manifest.yml -b paketo-buildpacks/java
 cf push -i $PORTAL_WEB_USER_INSTANCE -f $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/manifest.yml -b paketo-buildpacks/nginx
 
+if [[ ${ENABLE_LOGGING_SERVICE} = true ]]; then
+        cf push -f $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -b paketo-buildpacks/java
+fi
 
 cf apps
 

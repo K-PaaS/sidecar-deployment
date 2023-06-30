@@ -1,0 +1,91 @@
+
+    # seperate process for logging-service
+    <match **>
+      @type copy
+      <store>
+        @type relabel
+        @label @SIDECAR
+      </store>
+      <store>
+        @type relabel
+        @label @LOGGING
+      </store>
+    </match>
+
+    # for sidecar
+    <label @SIDECAR>
+      <match **>
+        @type copy
+        <store ignore_error>
+          @type syslog_rfc5424
+          host log-cache-syslog
+          port 8082
+          transport tcp
+          <format>
+            @type syslog_rfc5424
+            proc_id_field instance_id
+            app_name_field app_id
+            structured_data_field structured_data
+          </format>
+
+          <buffer>
+            @type memory
+            flush_mode immediate
+            flush_thread_count 8
+          </buffer>
+        </store>
+        @include /fluentd/etc/aggregate_drains.conf
+      </match>
+    </label>
+
+    # for logging-service
+    <label @LOGGING>
+      <filter **>
+        @type grep
+        <exclude>
+          key $.instance_id
+          pattern /^0$/
+        </exclude>
+      </filter>
+
+      <filter kubernetes.**>
+        @type record_transformer
+        remove_keys stream,docker,kubernetes
+      </filter>
+
+      <filter forwarded.**>
+        @type record_transformer
+        remove_keys source_type
+      </filter>
+
+      <filter kubernetes.** forwarded.**>
+        @type record_transformer
+        enable_ruby true
+        <record>
+          id ${record.dig("app_id")}
+          message \{\"cf_app_id\":\"${record.dig("app_id")}\"\,\"msg\":\"${record.dig("log")}\"\,\"instance_id\"\:\"${record.dig("instance_id")}\"\}
+        </record>
+      </filter>
+
+      <filter kubernetes.** forwarded.**>
+        @type record_transformer
+        remove_keys app_id,instance_id,log,structured_data
+      </filter>
+
+      <match **>
+        @type influxdb
+        host <INFLUXDB_IP>
+        port <INFLUXDB_HTTP_PORT>
+        user <INFLUXDB_USERNAME>
+        password <INFLUXDB_PASSWORD>
+        dbname <INFLUXDB_DATABASE>
+        measurement <INFLUXDB_MEASUREMENT>
+        time_precision <INFLUXDB_TIME_PRECISION>
+        tag_keys ["id"]
+        time_key time
+        flush_interval 60
+        use_ssl <INFLUXDB_HTTPS_ENABLED>
+        verify_ssl false
+        sequence_tag _seq
+      </match>
+    </label>

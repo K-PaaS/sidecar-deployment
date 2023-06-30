@@ -1,0 +1,16 @@
+#!/bin/bash
+
+## COMMON VARIABLE
+LOGGING_NAMESPACE=logging                           # Logging Infra Namespace(Kubernetes) Name
+
+## INFLUXDB VARIABLE
+INFLUXDB_IP=influxdb.logging.svc.cluster.local      # InfluxDB IP
+INFLUXDB_HTTP_PORT="8086"                           # InfluxDB Port
+INFLUXDB_USERNAME=admin                             # InfluxDB Username
+INFLUXDB_PASSWORD=PaaS-TA2020                       # InfluxDB Password
+INFLUXDB_HTTPS_ENABLED=true                         # (e.g. true or false)
+INFLUXDB_DATABASE=logging_db                        # InfluxDB DB Name
+INFLUXDB_MEASUREMENT=logging_measurement            # InfluxDB Measurement Name
+INFLUXDB_LIMIT=50                                   # InfluxDB query limit
+INFLUXDB_RETENTION_POLICY=7d                        # InfluxDB retention policy
+INFLUXDB_TIME_PRECISION=s                           # Level of timestamp stored (hour(h), minutes(m), second(s), millisecond(ms), microsecond(u), nanosecond(ns)

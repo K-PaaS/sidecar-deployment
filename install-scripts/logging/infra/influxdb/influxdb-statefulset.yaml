@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: influxdb
+  namespace: logging
+spec:
+  selector:
+    matchLabels:
+      app: influxdb
+  serviceName: influxdb
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: influxdb
+    spec:
+      containers:
+        - name: influxdb
+          image: influxdb:1.8.10
+          env:
+            - name: INFLUXDB_CONFIG_PATH
+              value: "/etc/influxdb/influxdb.conf"
+          volumeMounts:
+            - name: influxdb-config
+              mountPath: /etc/influxdb
+            - name: influxdb-secret
+              mountPath: /etc/influxdb/secret
+              readOnly: true
+            - name: influxdb-tls-cert
+              mountPath: /etc/ssl
+              readOnly: true
+            - name: influxdb-init-script
+              mountPath: /etc/influxdb/scripts
+              readOnly: false
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    sleep 10
+                    /etc/influxdb/scripts/init.sh
+      volumes:
+        - name: influxdb-config
+          configMap:
+            name: influxdb-config
+        - name: influxdb-secret
+          secret:
+            secretName: influxdb-secret
+        - name: influxdb-tls-cert
+          secret:
+            secretName: influxdb-tls-cert
+        - name: influxdb-init-script
+          configMap:
+            name: influxdb-init-script
+            defaultMode: 0757
+  volumeClaimTemplates:
+    - metadata:
+        name: influxdb-storage
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 10Gi
