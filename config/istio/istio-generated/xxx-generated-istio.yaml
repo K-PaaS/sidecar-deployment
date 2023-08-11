@@ -8688,7 +8688,7 @@ data:
         "useMCP": false
       },
       "istio_cni": {
-        "enabled": false
+        "enabled": true
       },
       "revision": "",
       "sidecarInjectorWebhook": {

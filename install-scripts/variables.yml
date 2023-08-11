@@ -3,7 +3,7 @@ iaas=aws                                                    # IaaS (e.g. aws or 
 system_domain=sidecar.com                                   # sidecar system_domain (e.g. 3.35.135.135.nip.io)
 use_lb=true                                                 # (e.g. true or false)
 public_ip=3.35.135.135                                      # LoadbalancerIP (PublicIP associcated with system_domain, if use openstack)
-storageclass_name=ebs-sc                                    # Storage Class Name ($ kubectl get sc) (e.g. ebs-sc[use aws] || cinder-csi[use openstack])
+storageclass_name=ebs-sc                                    # Storage Class Name ($ kubectl get sc)
 
 
 ## APP_REGISTRY VARIABLE

@@ -7,6 +7,9 @@ metadata:
   name: #@ system_namespace()
   labels:
     cf-for-k8s.cloudfoundry.org/cf-system-ns: ""
+    #@ if system_namespace() == "cf-system":
+    pod-security.kubernetes.io/enforce: privileged
+    #@ end
     #@ if quarks_secret_enabled():
     quarks.cloudfoundry.org/monitored: cf-quarks-secret
     #@ end

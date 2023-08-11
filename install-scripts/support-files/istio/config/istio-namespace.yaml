@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    cloudfoundry.org/istio_version: 1.12.6
+    cf-for-k8s.cloudfoundry.org/istio-system-ns: ""
+  name: istio-system

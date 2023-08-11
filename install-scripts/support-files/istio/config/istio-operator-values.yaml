@@ -1,0 +1,11 @@
+revision: "1-12-6"
+operatorNamespace: istio-operator
+watchedNamespaces: istio-system
+operator:
+  resources:
+    limits:
+      cpu: 4
+      memory: 4Gi
+    requests:
+      cpu: 2
+      memory: 2G
