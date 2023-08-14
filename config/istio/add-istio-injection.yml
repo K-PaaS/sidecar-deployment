@@ -9,4 +9,4 @@ metadata:
   #@overlay/match missing_ok=True
   labels:
     #@overlay/match missing_ok=True
-    istio-injection: enabled
+    istio-injection: 1-12-6
