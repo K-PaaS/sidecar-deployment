@@ -16,9 +16,9 @@ PORTAL_SECURITY_GROUP_NAME="portal"                     # PaaS-TA Portal Securit
 
 MAIL_SMTP_HOST="smtp.gmail.com"                         # Mail-SMTP Host
 MAIL_SMTP_PORT="465"                                    # Mail-SMTP Port
-MAIL_SMTP_USERNAME="paasta"                             # Mail-SMTP User Name
-MAIL_SMTP_PASSWORD="paasta"                             # Mail-SMTP Password
-MAIL_SMTP_USEREMAIL="paas-ta@gmail.com"                 # Mail-SMTP User Email
+MAIL_SMTP_USERNAME="kpaas"                              # Mail-SMTP User Name
+MAIL_SMTP_PASSWORD="kpaas"                              # Mail-SMTP Password
+MAIL_SMTP_USEREMAIL="kpaas@gmail.com"                   # Mail-SMTP User Email
 
 SSH_ENABLE=false                                        # true or false
 TAIL_LOG_INTERVAL=250                                   # second
@@ -38,16 +38,16 @@ PORTAL_WEB_USER_INSTANCE=1                              # PORTAL-WEB-USER INSTAN
 ##UNCHANGE VARIABLE(if defulat install, don't change variable)
 API_TYPE=sidecar
 UAA_ADMIN_CLIENT_ID="admin"				# UAA Client ID
-CC_DB_NAME="cloud_controller"				# PaaS-TA AP CCDB Name
-CC_DB_USER_NAME="cloud_controller"			# PaaS-TA AP CCDB ID
-UAA_DB_NAME="uaa"					# PaaS-TA AP UAADB Name
-UAA_DB_USER_NAME="uaa"					# PaaS-TA AP UAADB ID
+CC_DB_NAME="cloud_controller"				# AP CCDB Name
+CC_DB_USER_NAME="cloud_controller"			# AP CCDB ID
+UAA_DB_NAME="uaa"					# AP UAADB Name
+UAA_DB_USER_NAME="uaa"					# AP UAADB ID
 UAAC_PORTAL_CLIENT_ID="portalclient"			# UAAC Portal Client ID
 
 IS_PAAS_TA_EXTERNAL_DB=false                            # (true or false)
-PAAS_TA_EXTERNAL_DB_IP=                                 # PaaS-TA AP External DB IP
-PAAS_TA_EXTERNAL_DB_PORT=                               # PaaS-TA AP External DB Port
-PAAS_TA_EXTERNAL_DB_KIND=                               # PaaS-TA AP External DB Kind(IF USE e.g. postgres or mysql)
+PAAS_TA_EXTERNAL_DB_IP=                                 # AP External DB IP
+PAAS_TA_EXTERNAL_DB_PORT=                               # AP External DB Port
+PAAS_TA_EXTERNAL_DB_KIND=                               # AP External DB Kind(IF USE e.g. postgres or mysql)
 IS_PORTAL_EXTERNAL_DB=false                             # (true or false)
 PORTAL_EXTERNAL_DB_IP=                                  # Portal External DB IP
 PORTAL_EXTERNAL_DB_PORT=                                # Portal External DB Port
