@@ -9,10 +9,10 @@ LOGGING_WORKING_DIRECTORY=~/sidecar-deployment/install-scripts/logging     # Log
 USER_APP_SIZE_MB=0                                      # USER My App size(MB), if value==0 -> unlimited
 MONITORING_ENABLE=false                                 # Monitoring Enable Option
 
-PORTAL_ORG_NAME="portal"                                # PaaS-TA Portal Org Name
-PORTAL_SPACE_NAME="system"                              # PaaS-TA Portal Space Name
-PORTAL_QUOTA_NAME="portal_quota"                        # PaaS-TA Portal Quota Name
-PORTAL_SECURITY_GROUP_NAME="portal"                     # PaaS-TA Portal Security Group Name
+PORTAL_ORG_NAME="portal"                                # Portal Org Name
+PORTAL_SPACE_NAME="system"                              # Portal Space Name
+PORTAL_QUOTA_NAME="portal_quota"                        # Portal Quota Name
+PORTAL_SECURITY_GROUP_NAME="portal"                     # Portal Security Group Name
 
 MAIL_SMTP_HOST="smtp.gmail.com"                         # Mail-SMTP Host
 MAIL_SMTP_PORT="465"                                    # Mail-SMTP Port
@@ -44,10 +44,10 @@ UAA_DB_NAME="uaa"					# AP UAADB Name
 UAA_DB_USER_NAME="uaa"					# AP UAADB ID
 UAAC_PORTAL_CLIENT_ID="portalclient"			# UAAC Portal Client ID
 
-IS_PAAS_TA_EXTERNAL_DB=false                            # (true or false)
-PAAS_TA_EXTERNAL_DB_IP=                                 # AP External DB IP
-PAAS_TA_EXTERNAL_DB_PORT=                               # AP External DB Port
-PAAS_TA_EXTERNAL_DB_KIND=                               # AP External DB Kind(IF USE e.g. postgres or mysql)
+IS_AP_EXTERNAL_DB=false                            # (true or false)
+AP_EXTERNAL_DB_IP=                                 # AP External DB IP
+AP_EXTERNAL_DB_PORT=                               # AP External DB Port
+AP_EXTERNAL_DB_KIND=                               # AP External DB Kind(IF USE e.g. postgres or mysql)
 IS_PORTAL_EXTERNAL_DB=false                             # (true or false)
 PORTAL_EXTERNAL_DB_IP=                                  # Portal External DB IP
 PORTAL_EXTERNAL_DB_PORT=                                # Portal External DB Port
