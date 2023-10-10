@@ -23,6 +23,8 @@ MAIL_SMTP_USEREMAIL="kpaas@gmail.com"                   # Mail-SMTP User Email
 SSH_ENABLE=false                                        # true or false
 TAIL_LOG_INTERVAL=250                                   # second
 
+SPRING_SECURITY_USERNAME="admin"                        # Spring Security Username
+SPRING_SECURITY_PASSWORD="openkpaas"                    # Spring Security Password
 
 
 ##PORTAL APP INSTANCES
