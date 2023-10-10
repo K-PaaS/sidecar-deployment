@@ -2,20 +2,20 @@
 
 source portal-app-variable.yml
 
-PORTALAPPNAME=portal-app-1.2.13
-PORTALAPPDOWNLOADLINK=https://nextcloud.paas-ta.org/index.php/s/6aanBz8osifGnQZ/download
+PORTALAPPNAME=portal-app-1.2.14.1
+PORTALAPPDOWNLOADLINK=https://nextcloud.k-paas.org/index.php/s/yzND6SjwiFG8yfy/download
 
 #########################################
 # Portal Component Folder Name
-PORTAL_API=portal-api-2.4.3
-PORTAL_COMMON_API=portal-common-api-2.2.6
-PORTAL_GATEWAY=portal-gateway-2.1.2
-PORTAL_LOG_API=portal-log-api-2.3.2
-PORTAL_REGISTRATION=portal-registration-2.1.0
-PORTAL_STORAGE_API=portal-storage-api-2.2.1
-PORTAL_WEB_ADMIN=portal-web-admin-2.3.5
-PORTAL_WEB_USER=portal-web-user-2.4.9
-PORTAL_SSH=portal-ssh-1.0.0
+PORTAL_API=portal-api-2.4.3.1
+PORTAL_COMMON_API=portal-common-api-2.2.6.1
+PORTAL_GATEWAY=portal-gateway-2.1.2.1
+PORTAL_LOG_API=portal-log-api-2.3.2.1
+PORTAL_REGISTRATION=portal-registration-2.1.0.1
+PORTAL_STORAGE_API=portal-storage-api-2.2.1.1
+PORTAL_WEB_ADMIN=portal-web-admin-2.3.5.1
+PORTAL_WEB_USER=portal-web-user-2.4.10.1
+PORTAL_SSH=portal-ssh-1.0.0.1
 
 #########################################
 # language list check
@@ -96,36 +96,36 @@ fi
 MONITORING_API_URL=SKIP
 
 ## AP DB
-if [[ ${IS_PAAS_TA_EXTERNAL_DB} = "false" ]]; then
+if [[ ${IS_AP_EXTERNAL_DB} = "false" ]]; then
         # AP - Internal DB use
         # if [[  ]]; then
-                PAASTA_DB_DRIVER=org.postgresql.Driver
-                PAASTA_DATABASE=postgresql
+                AP_DB_DRIVER=org.postgresql.Driver
+                AP_DATABASE=postgresql
         # elif [[  ]]; then
-                #PAASTA_DB_DRIVER=com.mysql.jdbc.Driver
-                #PAASTA_DATABASE=mysql
+                #AP_DB_DRIVER=com.mysql.jdbc.Driver
+                #AP_DATABASE=mysql
         # fi
-        PAASTA_DB_IP="cf-db-postgresql.cf-db.svc.cluster.local"
-        PAASTA_DB_PORT="5432"
+        AP_DB_IP="cf-db-postgresql.cf-db.svc.cluster.local"
+        AP_DB_PORT="5432"
 
-elif [[ ${IS_PAAS_TA_EXTERNAL_DB} = "true" ]]; then
+elif [[ ${IS_AP_EXTERNAL_DB} = "true" ]]; then
         # AP - External DB use
-        if [[ $PAAS_TA_EXTERNAL_DB_KIND = "postgres" ]]; then
-                PAASTA_DB_DRIVER=org.postgresql.Driver
-                PAASTA_DATABASE=postgresql
-        elif [[ $PAAS_TA_EXTERNAL_DB_KIND = "mysql" ]]; then
-                PAASTA_DB_DRIVER=com.mysql.jdbc.Driver
-                PAASTA_DATABASE=mysql
+        if [[ $AP_EXTERNAL_DB_KIND = "postgres" ]]; then
+                AP_DB_DRIVER=org.postgresql.Driver
+                AP_DATABASE=postgresql
+        elif [[ $AP_EXTERNAL_DB_KIND = "mysql" ]]; then
+                AP_DB_DRIVER=com.mysql.jdbc.Driver
+                AP_DATABASE=mysql
         else
-                echo "plz check IS_PAAS_TA_EXTERNAL_DB & PAAS_TA_EXTERNAL_DB_KIND"
+                echo "plz check IS_AP_EXTERNAL_DB & AP_EXTERNAL_DB_KIND"
                 return
         fi
 
-        PAASTA_DB_IP=$PAAS_TA_EXTERNAL_DB_IP
-        PAASTA_DB_PORT=$PAAS_TA_EXTERNAL_DB_PORT
+        AP_DB_IP=$AP_EXTERNAL_DB_IP
+        AP_DB_PORT=$AP_EXTERNAL_DB_PORT
 else
-        # unknown IS_PAAS_TA_EXTERNAL_DB value
-        echo "plz check IS_PAAS_TA_EXTERNAL_DB"
+        # unknown IS_AP_EXTERNAL_DB value
+        echo "plz check IS_AP_EXTERNAL_DB"
         return
 fi
 
@@ -160,6 +160,8 @@ UAAC_PORTAL_CLIENT_SECRET=$(yq e '.uaa_client_portal_secret' $SIDECAR_VALUES_PAT
 API_TYPE=$API_TYPE
 SSH_ENABLE=$SSH_ENABLE
 TAIL_LOG_INTERVAL=$TAIL_LOG_INTERVAL
+
+HEADER_AUTH=$PORTAL_HEADER_AUTH
 
 #########################################
 
@@ -281,6 +283,23 @@ find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_ADMIN/manifest.yml
 find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API/manifest.yml -type f | xargs sed -i -e 's/<PORTAL_DB_USER_PASSWORD>/'${PORTAL_DB_USER_PASSWORD}'/g'
 find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_ADMIN/manifest.yml -type f | xargs sed -i -e 's/<PORTAL_DB_USER_PASSWORD>/'${PORTAL_DB_USER_PASSWORD}'/g'
 
+# SPRING_SECURITY_USERNAME
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_API/manifest.yml -type f | xargs sed -i -e 's/<SPRING_SECURITY_USERNAME>/'${SPRING_SECURITY_USERNAME}'/g'
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API/manifest.yml -type f | xargs sed -i -e 's/<SPRING_SECURITY_USERNAME>/'${SPRING_SECURITY_USERNAME}'/g'
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<SPRING_SECURITY_USERNAME>/'${SPRING_SECURITY_USERNAME}'/g'
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_STORAGE_API/manifest.yml -type f | xargs sed -i -e 's/<SPRING_SECURITY_USERNAME>/'${SPRING_SECURITY_USERNAME}'/g'
+
+# SPRING_SECURITY_PASSWORD
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_API/manifest.yml -type f | xargs sed -i -e 's/<SPRING_SECURITY_PASSWORD>/'${SPRING_SECURITY_PASSWORD}'/g'
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API/manifest.yml -type f | xargs sed -i -e 's/<SPRING_SECURITY_PASSWORD>/'${SPRING_SECURITY_PASSWORD}'/g'
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_LOG_API/manifest.yml -type f | xargs sed -i -e 's/<SPRING_SECURITY_PASSWORD>/'${SPRING_SECURITY_PASSWORD}'/g'
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_STORAGE_API/manifest.yml -type f | xargs sed -i -e 's/<SPRING_SECURITY_PASSWORD>/'${SPRING_SECURITY_PASSWORD}'/g'
+
+# HEADER_AUTH
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_API/manifest.yml -type f | xargs sed -i -e "s/<HEADER_AUTH>/${HEADER_AUTH}/g"
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API/manifest.yml -type f | xargs sed -i -e "s/<HEADER_AUTH>/${HEADER_AUTH}/g"
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_ADMIN/manifest.yml -type f | xargs sed -i -e "s/<HEADER_AUTH>/${HEADER_AUTH}/g"
+
 
 ## PORTAL-API
 # ABACUS_URL(Deprecated)
@@ -292,17 +311,17 @@ find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_API/manifest.yml -type
 
 
 ## PORTAL-COMMON-API
-# PAASTA_DB_DRIVER
-find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API/manifest.yml -type f | xargs sed -i -e 's/<PAAS-TA_DB_DRIVER>/'${PAASTA_DB_DRIVER}'/g'
+# AP_DB_DRIVER
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API/manifest.yml -type f | xargs sed -i -e 's/<AP_DB_DRIVER>/'${AP_DB_DRIVER}'/g'
 
-# PAASTA_DATABASE
-find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API/manifest.yml -type f | xargs sed -i -e 's/<PAAS-TA_DATABASE>/'${PAASTA_DATABASE}'/g'
+# AP_DATABASE
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API/manifest.yml -type f | xargs sed -i -e 's/<AP_DATABASE>/'${AP_DATABASE}'/g'
 
-# PAASTA_DB_IP
-find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API/manifest.yml -type f | xargs sed -i -e "s/<PAAS-TA_DB_IP>/$PAASTA_DB_IP/g"
+# AP_DB_IP
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API/manifest.yml -type f | xargs sed -i -e "s/<AP_DB_IP>/$AP_DB_IP/g"
 
-# PAASTA_DB_PORT
-find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API/manifest.yml -type f | xargs sed -i -e 's/<PAAS-TA_DB_PORT>/'${PAASTA_DB_PORT}'/g'
+# AP_DB_PORT
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API/manifest.yml -type f | xargs sed -i -e 's/<AP_DB_PORT>/'${AP_DB_PORT}'/g'
 
 # CC_DB_NAME
 find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API/manifest.yml -type f | xargs sed -i -e 's/<CC_DB_NAME>/'${CC_DB_NAME}'/g'
@@ -343,7 +362,7 @@ find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API/manifest.ym
 # PORTAL_USE_LANGUAGE
 COMMON_API_DIRECTORY=$PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_COMMON_API
 APP_CONFIG=$COMMON_API_DIRECTORY/manifest.yml
-SEARCH_FILTER=$(unzip -q -l ${COMMON_API_DIRECTORY}/paas-ta-portal-common-api.jar | grep "template/" | cut -d "/" -f4 | uniq)
+SEARCH_FILTER=$(unzip -q -l ${COMMON_API_DIRECTORY}/ap-portal-common-api.jar | grep "template/" | cut -d "/" -f4 | uniq)
 
 ORIGIN_LANG=()
 for lang in $SEARCH_FILTER
@@ -422,7 +441,7 @@ find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_STORAGE_API/manifest.y
 # PORTAL_USE_LANGUAGE
 WEB_ADMIN_DIRECTORY=$PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_ADMIN
 APP_CONFIG=$WEB_ADMIN_DIRECTORY/manifest.yml
-SEARCH_FILTER=$(unzip -q -l $WEB_ADMIN_DIRECTORY/paas-ta-portal-webadmin.war | grep "message_" | cut -d "_" -f2)
+SEARCH_FILTER=$(unzip -q -l $WEB_ADMIN_DIRECTORY/ap-portal-webadmin.war | grep "message_" | cut -d "_" -f2)
 BEFORE_LANG_LIST=$(grep "languageList" $APP_CONFIG | sed -e 's/^ *//g')
 
 ORIGIN_LANG=()
@@ -470,8 +489,8 @@ find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/config -type 
 # TAIL_LOG_INTERVAL
 find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/config -type f | xargs sed -i -e 's/<TAIL_LOG_INTERVAL>/'${TAIL_LOG_INTERVAL}'/g'
 
-# PAASTA_DEPLOY_TYPE
-find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/config -type f | xargs sed -i -e 's/<PAASTA_DEPLOY_TYPE>/'${API_TYPE}'/g'
+# AP_DEPLOY_TYPE
+find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/config -type f | xargs sed -i -e 's/<AP_DEPLOY_TYPE>/'${API_TYPE}'/g'
 
 # PORTAL_USE_LANGUAGE
 PORTAL_WEB_USER_USE_LANG_LIST=$(echo "[\"${PORTAL_WEB_USER_LANGUAGE[*]}\"]" | sed 's/ /\",\"/g')
@@ -479,10 +498,10 @@ PORTAL_WEB_USER_USE_LANG_LIST=$(echo "[\"${PORTAL_WEB_USER_LANGUAGE[*]}\"]" | se
 find $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/config -type f | xargs sed -i -e 's/<PORTAL_USE_LANGUAGE>/'${PORTAL_WEB_USER_USE_LANG_LIST}'/g'
 
 # PORTAL WEBUSER MAIN
-BEFORE_CONFIG=$PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/paas-ta-portal-webuser/assets/resources/env/config.json
+BEFORE_CONFIG=$PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/ap-portal-webuser/assets/resources/env/config.json
 AFTER_CONFIG=$PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/config/config.json
-MAIN_JS=$PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/paas-ta-portal-webuser/main.*.js
-LANG_DIR_PATH=$PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/paas-ta-portal-webuser/assets/i18n
+MAIN_JS=$PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/ap-portal-webuser/main.*.js
+LANG_DIR_PATH=$PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/ap-portal-webuser/assets/i18n
 
 BEFORE_LANG=()
 for file in `ls $LANG_DIR_PATH/*`
@@ -517,7 +536,7 @@ echo $CHANGE_CONFIG | xargs sed -i
 cp $AFTER_CONFIG $BEFORE_CONFIG
 
 ## nginx.conf (nginx.conf change relative path portal-webuser 2.4.8)
-#sed -i '/root/ c\    root /workspace;' $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/paas-ta-portal-webuser/nginx.conf
+#sed -i '/root/ c\    root /workspace;' $PORTAL_APP_WORKING_DIRECTORY/$PORTALAPPNAME/$PORTAL_WEB_USER/ap-portal-webuser/nginx.conf
 
 
 #########################################

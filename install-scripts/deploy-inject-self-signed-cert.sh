@@ -4,13 +4,13 @@ source variables.yml
 ################################################################################################################
 #################################     inject-self-signed-cert 활용 가이드      #################################
 ################################################################################################################
-# Private Repository (e.g. Harbor, distribution....) 사용 시 HTTPS가 지원되야 PaaS-TA Sidecar 설치가 가능하다.
+# Private Repository (e.g. Harbor, distribution....) 사용 시 HTTPS가 지원되야 K-PaaS Sidecar 설치가 가능하다.
 # HTTPS 설정 시 자체 서명된 인증서를 사용하려면 Private Repository를 사용하는 POD에 HTTPS 설정 시 사용한 인증서를 저장해야 한다.
 # deploy-inject-self-signed-cert.sh에서 사용되는 cert-injection-webhook(https://github.com/vmware-tanzu/cert-injection-webhook)는 
 # labels 또는 annotations을 설정하여 해당 labels 또는 annotations을 가진 POD가 배포될 시 컨테이너 내부에 인증서를 삽입한다.
 ################################################################################################################
 # 사용 방법
-# 1. insecure-registry 설정을 진행한다. (CRI-O 기준 설정 가이드 : https://github.com/PaaS-TA/paas-ta-container-platform/blob/v1.1.0/install-guide/bosh/paas-ta-container-platform-bosh-deployment-spray-guide-v1.1.md#3.1)
+# 1. insecure-registry 설정을 진행한다. (CRI-O 기준 설정 가이드 : https://github.com/K-PaaS/container-platform/blob/master/install-guide/bosh/cp-bosh-deployment-spray-guide-v1.1.md#3.1)
 # 2. variables.yml 설정을 진행한다.
 # 2-1. is_self_signed_certificate=true
 # 2-2. app_registry_cert_path=support-files/private-repository.ca
@@ -38,8 +38,8 @@ fi
 
 
 ytt -f ./support-files/cert-injection-webhook/deployments/k8s \
-    -v pod_webhook_image=paastakr/pod-webhook-image \
-    -v setup_ca_certs_image=paastakr/setup-ca-certs-image \
+    -v pod_webhook_image=opakorea/pod-webhook-image \
+    -v setup_ca_certs_image=opakorea/setup-ca-certs-image \
     --data-value-file ca_cert_data=${app_registry_cert_path} \
     --data-value-yaml labels="[kpack.io/build, private-repo-cert-injection]"  > support-files/cert-injection-webhook/manifest.yaml
 

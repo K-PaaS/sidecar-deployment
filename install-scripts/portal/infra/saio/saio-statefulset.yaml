@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: openstack-swift-keystone-docker
-  namespace: paasta
+  namespace: kpaas
 spec:
   serviceName: openstack-swift-keystone-docker
   replicas: 1
@@ -15,7 +15,7 @@ spec:
         app: openstack-swift-keystone-docker
     spec:
       containers:
-        - image: paastakr/saio:1.0
+        - image: opakorea/saio:1.0.0.1
           name: openstack-swift-keystone-docker
           env:
             - name: IF_USE_SWIFT_EXTERNAL_MARIADB
@@ -23,23 +23,23 @@ spec:
             - name: MARIADB_PORT
               value: "13306"
             - name: MARIADB_ADMIN_PASSWORD
-              value: "Paasta@2022"
+              value: "Kpaas@2022"
             - name: MARIADB_ADDRESS
-              value: "mariadb.paasta.svc.cluster.local"
+              value: "mariadb.kpaas.svc.cluster.local"
             - name: SWIFT_ADDRESS
-              value: "openstack-swift-keystone-docker.paasta.svc.cluster.local"
+              value: "openstack-swift-keystone-docker.kpaas.svc.cluster.local"
             - name: KEYSTONE_PORT
               value: "25001"
             - name: PROXY_PORT
               value: "10008"
             - name: PORTAL_OPENSTACK_REGION
-              value: "paasta"
+              value: "kpaas"
             - name: PORTAL_OPENSTACK_PROJECT_NAME
-              value: "paasta-portal"
+              value: "kpaas-portal"
             - name: PORTAL_OPENSTACK_USER_NAME
-              value: "paasta-portal"
+              value: "kpaas-portal"
             - name: PORTAL_OPENSTACK_USER_PASSWORD
-              value: "paasta"
+              value: "kpaas"
           ports:
             - containerPort: 2022 # Container 포트
               name: openstack-swift
