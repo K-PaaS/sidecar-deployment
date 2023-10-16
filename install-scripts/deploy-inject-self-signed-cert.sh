@@ -34,9 +34,6 @@ else
   return
 fi
 
-support-files/cert-injection-webhook-config/
-
-
 ytt -f ./support-files/cert-injection-webhook-config \
       --data-value-file ca_cert_data=${app_registry_cert_path} \
       --data-value-yaml labels="[kpack.io/build, private-repo-cert-injection]"  > support-files/cert-injection-webhook/manifest.yaml
