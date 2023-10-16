@@ -1,0 +1,270 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-injection-webhook
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.25
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ca-cert
+  namespace: cert-injection-webhook
+  annotations:
+    kapp.k14s.io/versioned: ""
+data:
+  ca.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUY3ekNDQTllZ0F3SUJBZ0lVWmxzcmdCNzFtWG9USGd2ME92VXV4VWRhV3RVd0RRWUpLb1pJaHZjTkFRRU4KQlFBd2R6RUxNQWtHQTFVRUJoTUNRMDR4RURBT0JnTlZCQWdNQjBKbGFXcHBibWN4RURBT0JnTlZCQWNNQjBKbAphV3BwYm1jeEVEQU9CZ05WQkFvTUIyVjRZVzF3YkdVeEVUQVBCZ05WQkFzTUNGQmxjbk52Ym1Gc01SOHdIUVlEClZRUUREQll5TURNdU1qVTFMakkxTlM0eE1UUXVibWx3TG1sdk1CNFhEVEl6TURjeE16QTRNamMxTVZvWERUTXoKTURjeE1EQTRNamMxTVZvd2R6RUxNQWtHQTFVRUJoTUNRMDR4RURBT0JnTlZCQWdNQjBKbGFXcHBibWN4RURBTwpCZ05WQkFjTUIwSmxhV3BwYm1jeEVEQU9CZ05WQkFvTUIyVjRZVzF3YkdVeEVUQVBCZ05WQkFzTUNGQmxjbk52CmJtRnNNUjh3SFFZRFZRUUREQll5TURNdU1qVTFMakkxTlM0eE1UUXVibWx3TG1sdk1JSUNJakFOQmdrcWhraUcKOXcwQkFRRUZBQU9DQWc4QU1JSUNDZ0tDQWdFQW1UL0lYUnhEUFhjOWdzMUw1MHFSQ2ZodzFHY05MUVQ1akVLSgpVcFZMd1gzZStrVEdmNk5Kd21NUnVEL0paMUd2aGZQZ2NEMU5oS1RSbWI4U094TzlVSXpTbEFtMWN5T2wwM1ZvClFaUDVaYlpKWjlkSE1PNDhad3d6dXhnSUxwR1VvNWViSFdKRzdOcWxmd1dWeGxBY2pqTHUzclJ3UkN0K21rM3cKM2Yxb3dRRGltTVJIM2lQeEVYU29uWjY0UEpSenU0SGxYRW92Qk1WMzVWVTZoQlZUTXl6LzR1MWdGRjh0aUc1ZQorNDNMM0tSc3Z5ZUx5L0tqZ0EzZVQyeGVNUVp5WHNhTGpqbmFjYyt3eG50N0tHckljSENCOW0xRGszekVPMG4zCnlSS0ZFdkhsQzFiRGRQaDRSb1F4aEcwa0VtUmhvdDVqN3BGZzNEejhFcWozQk1LbEoxZEp0S05FRkw0ZFlLZXIKMW13azNIcjRLTS8rdG5ISzl6bTFaemtMeWFNeGlCbE5aTG41dnduTnNpbXJMSFZaZjNHby82T09DRG5ZdzI0QQpialpVeEVqYWNleW93Y0YzQnl4VFdyWnNpZDdtWnBlTStNelZxRjFoc2dVODdpNzd2K3BQYUZ2L3FYQW4zTmpQCjhxRjArRXpUNHVCL3JxRS93STBRUy9DT2hpTlJZeFpPVnFVUXh2Z2VDS3JtalAxTjFvRjU1UytxcDRJbUQ3OFEKVG9ncU9DbnJPQk1nbm1PN1V0VHBNUm4xUDJKYi9SQlpPdzBMYlcrdkc5a1dFVHZkeXNrRmRFdzIvaktZbUFjVQpsbzM0VzNHb1g0d2p2Uk5oVzk5TGlyVDU5cGdBb2lNYXhvSmRuSXNrbDFzaWpZVkc3VTA4cTkrUWFLMmZYTjRRCkI4Snh2VmNDQXdFQUFhTnpNSEV3SHdZRFZSMGpCQmd3Rm9BVU9NVXNFZjVOazdPdkJSMkd6dzJFQXVtNUZRMHcKQ1FZRFZSMFRCQUl3QURBTEJnTlZIUThFQkFNQ0JQQXdFd1lEVlIwbEJBd3dDZ1lJS3dZQkJRVUhBd0V3SVFZRApWUjBSQkJvd0dJSVdNakF6TGpJMU5TNHlOVFV1TVRFMExtNXBjQzVwYnpBTkJna3Foa2lHOXcwQkFRMEZBQU9DCkFnRUFkVUVLaldFMFpEUmtVNHFOV1lhZG5PUFhOL0RJSVppL0FjV0xaZVpTNDhNazhKZnhsdUxoeGRxQ1lwNlEKNytwRSs5Q1ROeVVUa0FBWUpPOEt2WnFsZEh6bit2V0l0WnptTGpSMlZFTVJPS21sU3ZsQ2t1Nk9XeCtVWDFoSQpWeUkraUNjNjdYRW5KM09BakRGQk1xV1BidDdxQ1pJL3BNRGVSbDUxZFlaWi9xSlFjN2dOY0JSU2tra1ZadU5MClAvdHdQYSs2dW5jNHBhQkxzMlU0WGFlNDI2M3ZHNDRhZC9abFpkV2hOZmYxQ3E5SWp1ZFZTQkd1UGJQRTJ2cksKK051QWFGSjJMRU5NbDF5akVmYmJ6aFNBU0w2N2R1K3p6cld4R3k5MERtSVFOV0dtQTFsd0kxRlZGaGlxQnRLZgpxYWtPaEZ2ZC9YUkxzQS9USXk0cUdqQnVkKytLM09QS2xIQnRLd25YOHRLRXBOZ3g2a1ROUXBtNWFlRklsYWI5Cm9VS2tNRGZuZ2paNzNKOEZtWGNIanJ4ZXd0Z2lVS0YybTUyb3dURjVVbnZwNm5qUHdmSXhlWjI4NW1aVnR1eEQKbjMxb045TWxnRmVYQmZpdnpubkRyMENJQUhMWmFNdE1hVzNaaXlmUzBoR05pVCtVN0FGWWxqRmZEcXpiRjZHbwo4ek1LY1RkQkZzWC9IcXlObm9lSDRTdnNhcUxHUjcyMUpuYmFDMFkwTnV0OGRuTU9ocHFTeXJtc0pZRHVqZEhnCkZacWtYSG44UjdiZXZTVlZZcHdtT0lGbkFuWEJLQ3J5cXJVUnF4RHdKUCtDbjUwem1kN09VelRTdWdyVFVBbHAKaEluVC9uMkxoWTVndm9ubUV6dEdwTnV0QXp2OXQrMm40T3BSU21LZ09ZK2FYRGc9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: http-proxy
+  namespace: cert-injection-webhook
+  annotations:
+    kapp.k14s.io/versioned: ""
+data:
+  value: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: https-proxy
+  namespace: cert-injection-webhook
+  annotations:
+    kapp.k14s.io/versioned: ""
+data:
+  value: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: no-proxy
+  namespace: cert-injection-webhook
+  annotations:
+    kapp.k14s.io/versioned: ""
+data:
+  value: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: setup-ca-certs-image
+  namespace: cert-injection-webhook
+data:
+  image: docker.io/opakorea/setup-ca-certs-image
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cert-injection-webhook-tls
+  namespace: cert-injection-webhook
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cert-injection-webhook
+  namespace: cert-injection-webhook
+  labels:
+    app: cert-injection-webhook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cert-injection-webhook
+  template:
+    metadata:
+      labels:
+        app: cert-injection-webhook
+    spec:
+      serviceAccountName: cert-injection-webhook-sa
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: server
+        image: gcr.io/cf-build-service-public/cert-injection-webhook/webhook@sha256:9a1d834fca8846221e9f32aa0b4c922e96d7e70a46f8f997ccc8490b7b6258c9
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          privileged: false
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: webhook-ca-cert
+          mountPath: /run/config_maps/ca_cert
+          readOnly: true
+        - name: http-proxy
+          mountPath: /run/config_maps/http_proxy
+          readOnly: true
+        - name: https-proxy
+          mountPath: /run/config_maps/https_proxy
+          readOnly: true
+        - name: no-proxy
+          mountPath: /run/config_maps/no_proxy
+          readOnly: true
+        ports:
+        - containerPort: 8443
+          name: webhook-port
+        env:
+        - name: SETUP_CA_CERTS_IMAGE
+          valueFrom:
+            configMapKeyRef:
+              name: setup-ca-certs-image
+              key: image
+        - name: SYSTEM_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        args:
+        - -label=kpack.io/build
+        - -label=private-repo-cert-injection
+      volumes:
+      - name: webhook-ca-cert
+        configMap:
+          name: ca-cert
+      - name: http-proxy
+        configMap:
+          name: http-proxy
+      - name: https-proxy
+        configMap:
+          name: https-proxy
+      - name: no-proxy
+        configMap:
+          name: no-proxy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cert-injection-webhook
+  namespace: cert-injection-webhook
+spec:
+  selector:
+    app: cert-injection-webhook
+  ports:
+  - port: 443
+    targetPort: webhook-port
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: defaults.webhook.cert-injection.tanzu.vmware.com
+webhooks:
+- name: defaults.webhook.cert-injection.tanzu.vmware.com
+  admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: cert-injection-webhook
+      namespace: cert-injection-webhook
+      path: /certinjectionwebhook
+      port: 443
+  failurePolicy: Ignore
+  matchPolicy: Exact
+  rules:
+  - operations:
+    - CREATE
+    - UPDATE
+    apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    resources:
+    - pods
+  sideEffects: None
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cert-injection-webhook-sa
+  namespace: cert-injection-webhook
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cert-injection-webhook-role
+  namespace: cert-injection-webhook
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  resourceNames:
+  - cert-injection-webhook-tls
+  verbs:
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cert-injection-webhook-role-binding
+  namespace: cert-injection-webhook
+  annotations:
+    kapp.k14s.io/update-strategy: fallback-on-replace
+subjects:
+- kind: ServiceAccount
+  name: cert-injection-webhook-sa
+  namespace: cert-injection-webhook
+roleRef:
+  kind: Role
+  name: cert-injection-webhook-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cert-injection-webhook-cluster-role
+rules:
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - mutatingwebhookconfigurations
+  resourceNames:
+  - defaults.webhook.cert-injection.tanzu.vmware.com
+  verbs:
+  - update
+  - delete
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - mutatingwebhookconfigurations
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cert-injection-webhook-cluster-role-binding
+  annotations:
+    kapp.k14s.io/update-strategy: fallback-on-replace
+subjects:
+- kind: ServiceAccount
+  name: cert-injection-webhook-sa
+  namespace: cert-injection-webhook
+roleRef:
+  kind: ClusterRole
+  name: cert-injection-webhook-cluster-role
+  apiGroup: rbac.authorization.k8s.io

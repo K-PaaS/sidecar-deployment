@@ -1,7 +1,7 @@
 // Copyright 2020-Present VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package podwebhook
+package certinjectionwebhook
 
 import (
 	"bytes"
@@ -28,9 +28,8 @@ const (
 )
 
 var (
-	errMissingNewObject       = errors.New("the new object may not be nil")
-	podResource               = metav1.GroupVersionResource{Version: "v1", Resource: "pods"}
-	root                int64 = 0
+	errMissingNewObject = errors.New("the new object may not be nil")
+	podResource         = metav1.GroupVersionResource{Version: "v1", Resource: "pods"}
 )
 
 // Implements webhook.AdmissionController
@@ -95,7 +94,7 @@ func (ac *admissionController) Admit(ctx context.Context, request *admissionv1.A
 	}
 
 	switch request.Operation {
-	case admissionv1.Create, admissionv1.Update:
+	case admissionv1.Create:
 	default:
 		logger.Infof("Unhandled webhook operation, letting it through %v", request.Operation)
 		return &admissionv1.AdmissionResponse{Allowed: true}
@@ -112,8 +111,8 @@ func (ac *admissionController) Admit(ctx context.Context, request *admissionv1.A
 			Allowed: true,
 		}
 	}
-	
-	if pod.Spec.NodeSelector["kubernetes.io/os"] == "windows"{
+
+	if pod.Spec.NodeSelector["kubernetes.io/os"] == "windows" {
 		return &admissionv1.AdmissionResponse{Allowed: true}
 	}
 
@@ -143,35 +142,19 @@ func (ac *admissionController) Admit(ctx context.Context, request *admissionv1.A
 
 func (ac *admissionController) mutate(ctx context.Context, req *admissionv1.AdmissionRequest) ([]byte, error) {
 	newBytes := req.Object.Raw
-	oldBytes := req.OldObject.Raw
 
-	var oldObj, newObj corev1.Pod
-
+	var newObj corev1.Pod
 	if len(newBytes) != 0 {
 		newDecoder := json.NewDecoder(bytes.NewBuffer(newBytes))
 		if err := newDecoder.Decode(&newObj); err != nil {
 			return nil, fmt.Errorf("cannot decode incoming new object: %v", err)
 		}
 	}
-	if len(oldBytes) != 0 {
-		oldDecoder := json.NewDecoder(bytes.NewBuffer(oldBytes))
-		if err := oldDecoder.Decode(&oldObj); err != nil {
-			return nil, fmt.Errorf("cannot decode incoming old object: %v", err)
-		}
-	}
-	var patches duck.JSONPatch
 
+	var patches duck.JSONPatch
 	var err error
 
-	if &oldObj != nil {
-		if req.SubResource == "" {
-			ctx = apis.WithinUpdate(ctx, oldObj)
-		} else {
-			ctx = apis.WithinSubResourceUpdate(ctx, oldObj, req.SubResource)
-		}
-	} else {
-		ctx = apis.WithinCreate(ctx)
-	}
+	ctx = apis.WithinCreate(ctx)
 	ctx = apis.WithUserInfo(ctx, &req.UserInfo)
 
 	if patches, err = ac.setBuildServicePodDefaults(ctx, patches, newObj); err != nil {
@@ -248,6 +231,13 @@ func (ac *admissionController) SetCaCerts(ctx context.Context, obj *corev1.Pod) 
 				MountPath: "/workspace",
 			},
 		},
+		SecurityContext: &corev1.SecurityContext{
+			RunAsNonRoot:             boolPointer(true),
+			AllowPrivilegeEscalation: boolPointer(false),
+			Privileged:               boolPointer(false),
+			SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+			Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+		},
 	}
 	obj.Spec.InitContainers = append([]corev1.Container{container}, obj.Spec.InitContainers...)
 }
@@ -269,9 +259,13 @@ var universalDeserializer = serializer.NewCodecFactory(runtime.NewScheme()).Univ
 
 func intersect(a []string, b map[string]string) bool {
 	for _, k := range a {
-		if v, ok := b[k]; ok && v != "" {
+		if _, ok := b[k]; ok {
 			return true
 		}
 	}
 	return false
+}
+
+func boolPointer(b bool) *bool {
+	return &b
 }

@@ -1,0 +1,6 @@
+#@data/values
+---
+setup_ca_certs:
+  image: docker.io/opakorea/setup-ca-certs-image
+cert_injection_webhook:
+  image: gcr.io/cf-build-service-public/cert-injection-webhook/webhook@sha256:9a1d834fca8846221e9f32aa0b4c922e96d7e70a46f8f997ccc8490b7b6258c9
