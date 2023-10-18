@@ -1,14 +1,14 @@
 // Copyright 2020-Present VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package podwebhook_test
+package certinjectionwebhook_test
 
 import (
 	"context"
 	"encoding/json"
 	"testing"
 
-	jp "github.com/evanphx/json-patch"
+	jp "github.com/evanphx/json-patch/v5"
 	"github.com/sclevine/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,7 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	wtesting "knative.dev/pkg/webhook/testing"
 
-	"github.com/pivotal/cert-injection-webhook/pkg/podwebhook"
+	"github.com/vmware-tanzu/cert-injection-webhook/pkg/certinjectionwebhook"
 )
 
 func TestPodAdmissionController(t *testing.T) {
@@ -34,7 +34,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 
 	when("#NewAdmissionController", func() {
 		it("returns an error if there is not at least one label or annotation", func() {
-			_, err := podwebhook.NewAdmissionController(
+			_, err := certinjectionwebhook.NewAdmissionController(
 				"",
 				"",
 				nil,
@@ -47,7 +47,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 			)
 			require.Errorf(t, err, "at least one label or annotation required")
 
-			_, err = podwebhook.NewAdmissionController(
+			_, err = certinjectionwebhook.NewAdmissionController(
 				"",
 				"",
 				nil,
@@ -60,7 +60,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 			)
 			require.NoError(t, err)
 
-			_, err = podwebhook.NewAdmissionController(
+			_, err = certinjectionwebhook.NewAdmissionController(
 				"",
 				"",
 				nil,
@@ -140,7 +140,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 		ctx := context.TODO()
 
 		it("sets the env vars on all containers on the pods that are labelled", func() {
-			ac, err := podwebhook.NewAdmissionController(
+			ac, err := certinjectionwebhook.NewAdmissionController(
 				name,
 				path,
 				func(ctx context.Context) context.Context { return ctx },
@@ -280,7 +280,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 				Resource:  metav1.GroupVersionResource{Version: "v1", Resource: "pods"},
 			}
 
-			ac, err := podwebhook.NewAdmissionController(
+			ac, err := certinjectionwebhook.NewAdmissionController(
 				name,
 				path,
 				func(ctx context.Context) context.Context { return ctx },
@@ -404,7 +404,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 				Resource:  metav1.GroupVersionResource{Version: "v1", Resource: "pods"},
 			}
 
-			ac, err := podwebhook.NewAdmissionController(
+			ac, err := certinjectionwebhook.NewAdmissionController(
 				name,
 				path,
 				func(ctx context.Context) context.Context { return ctx },
@@ -481,6 +481,17 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
     "op": "add",
     "path": "/spec/initContainers/0/imagePullPolicy",
     "value": "IfNotPresent"
+  },
+  {
+    "op": "add",
+    "path": "/spec/initContainers/0/securityContext",
+    "value": {
+	    "allowPrivilegeEscalation": false,
+	    "capabilities": {"drop": ["ALL"]},
+	    "privileged": false,
+	    "runAsNonRoot": true,
+	    "seccompProfile": {"type": "RuntimeDefault"}
+    }
   },
   {
     "op": "replace",
@@ -567,7 +578,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 				Resource:  metav1.GroupVersionResource{Version: "v1", Resource: "pods"},
 			}
 
-			ac, err := podwebhook.NewAdmissionController(
+			ac, err := certinjectionwebhook.NewAdmissionController(
 				name,
 				path,
 				func(ctx context.Context) context.Context { return ctx },
@@ -607,7 +618,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 				Resource:  metav1.GroupVersionResource{Version: "v1", Resource: "pods"},
 			}
 
-			ac, err := podwebhook.NewAdmissionController(
+			ac, err := certinjectionwebhook.NewAdmissionController(
 				name,
 				path,
 				func(ctx context.Context) context.Context { return ctx },
@@ -684,6 +695,17 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
     "op": "add",
     "path": "/spec/initContainers/0/imagePullPolicy",
     "value": "IfNotPresent"
+  },
+  {
+    "op": "add",
+    "path": "/spec/initContainers/0/securityContext",
+    "value": {
+	    "allowPrivilegeEscalation": false,
+	    "capabilities": {"drop": ["ALL"]},
+	    "privileged": false,
+	    "runAsNonRoot": true,
+	    "seccompProfile": {"type": "RuntimeDefault"}
+    }
   },
   {
     "op": "replace",
@@ -769,7 +791,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 				Resource:  metav1.GroupVersionResource{Version: "v1", Resource: "pods"},
 			}
 
-			ac, err := podwebhook.NewAdmissionController(
+			ac, err := certinjectionwebhook.NewAdmissionController(
 				name,
 				path,
 				func(ctx context.Context) context.Context { return ctx },
@@ -854,6 +876,17 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
     "op": "add",
     "path": "/spec/initContainers/0/imagePullPolicy",
     "value": "IfNotPresent"
+  },
+  {
+    "op": "add",
+    "path": "/spec/initContainers/0/securityContext",
+    "value": {
+	    "allowPrivilegeEscalation": false,
+	    "capabilities": {"drop": ["ALL"]},
+	    "privileged": false,
+	    "runAsNonRoot": true,
+	    "seccompProfile": {"type": "RuntimeDefault"}
+    }
   },
   {
     "op": "replace",
@@ -981,7 +1014,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 				Resource:  metav1.GroupVersionResource{Version: "v1", Resource: "pods"},
 			}
 
-			ac, err := podwebhook.NewAdmissionController(
+			ac, err := certinjectionwebhook.NewAdmissionController(
 				name,
 				path,
 				func(ctx context.Context) context.Context { return ctx },
@@ -1046,6 +1079,17 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
     "op": "add",
     "path": "/spec/initContainers/0/imagePullPolicy",
     "value": "IfNotPresent"
+  },
+  {
+    "op": "add",
+    "path": "/spec/initContainers/0/securityContext",
+    "value": {
+	    "allowPrivilegeEscalation": false,
+	    "capabilities": {"drop": ["ALL"]},
+	    "privileged": false,
+	    "runAsNonRoot": true,
+	    "seccompProfile": {"type": "RuntimeDefault"}
+    }
   },
   {
     "op": "replace",
@@ -1193,7 +1237,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 				Resource:  metav1.GroupVersionResource{Version: "v1", Resource: "containers"},
 			}
 
-			ac, err := podwebhook.NewAdmissionController(
+			ac, err := certinjectionwebhook.NewAdmissionController(
 				name,
 				path,
 				func(ctx context.Context) context.Context { return ctx },
@@ -1227,7 +1271,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 				Resource:  metav1.GroupVersionResource{Version: "v1", Resource: "pods"},
 			}
 
-			ac, err := podwebhook.NewAdmissionController(
+			ac, err := certinjectionwebhook.NewAdmissionController(
 				name,
 				path,
 				func(ctx context.Context) context.Context { return ctx },
@@ -1262,7 +1306,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 				Resource:  metav1.GroupVersionResource{Version: "v1", Resource: "pods"},
 			}
 
-			ac, err := podwebhook.NewAdmissionController(
+			ac, err := certinjectionwebhook.NewAdmissionController(
 				name,
 				path,
 				func(ctx context.Context) context.Context { return ctx },
@@ -1284,7 +1328,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 			err = json.Unmarshal(response.Patch, &actualPatch)
 			require.NoError(t, err)
 
-			expectedJSON := "[{\"op\":\"add\",\"path\":\"/spec/volumes\",\"value\":[{\"emptyDir\":{},\"name\":\"ca-certs\"}]},{\"op\":\"add\",\"path\":\"/spec/imagePullSecrets\",\"value\":[{\"name\":\"system-registry-credentials\"}]},{\"op\":\"add\",\"path\":\"/spec/initContainers/2\",\"value\":{\"env\":[{\"name\":\"EXISTING\",\"value\":\"VALUE\"}],\"image\":\"image\",\"name\":\"init-container-with-env\",\"resources\":{},\"volumeMounts\":[{\"mountPath\":\"/etc/ssl/certs\",\"name\":\"ca-certs\",\"readOnly\":true}]}},{\"op\":\"add\",\"path\":\"/spec/initContainers/0/env\",\"value\":[{\"name\":\"CA_CERTS_DATA\",\"value\":\"some-ca-certs-data\"}]},{\"op\":\"add\",\"path\":\"/spec/initContainers/0/volumeMounts\",\"value\":[{\"mountPath\":\"/workspace\",\"name\":\"ca-certs\"}]},{\"op\":\"add\",\"path\":\"/spec/initContainers/0/imagePullPolicy\",\"value\":\"IfNotPresent\"},{\"op\":\"replace\",\"path\":\"/spec/initContainers/0/name\",\"value\":\"setup-ca-certs\"},{\"op\":\"replace\",\"path\":\"/spec/initContainers/0/image\",\"value\":\"some-ca-certs-image\"},{\"op\":\"add\",\"path\":\"/spec/initContainers/0/workingDir\",\"value\":\"/workspace\"},{\"op\":\"replace\",\"path\":\"/spec/initContainers/1/name\",\"value\":\"init-container-without-env\"},{\"op\":\"add\",\"path\":\"/spec/initContainers/1/volumeMounts\",\"value\":[{\"mountPath\":\"/etc/ssl/certs\",\"name\":\"ca-certs\",\"readOnly\":true}]},{\"op\":\"remove\",\"path\":\"/spec/initContainers/1/env\"},{\"op\":\"add\",\"path\":\"/spec/containers/0/volumeMounts\",\"value\":[{\"mountPath\":\"/etc/ssl/certs\",\"name\":\"ca-certs\",\"readOnly\":true}]},{\"op\":\"add\",\"path\":\"/spec/containers/1/volumeMounts\",\"value\":[{\"mountPath\":\"/etc/ssl/certs\",\"name\":\"ca-certs\",\"readOnly\":true}]}]"
+			expectedJSON := "[{\"op\":\"add\",\"path\":\"/spec/volumes\",\"value\":[{\"emptyDir\":{},\"name\":\"ca-certs\"}]},{\"op\":\"add\",\"path\":\"/spec/imagePullSecrets\",\"value\":[{\"name\":\"system-registry-credentials\"}]},{\"op\":\"add\",\"path\":\"/spec/initContainers/2\",\"value\":{\"env\":[{\"name\":\"EXISTING\",\"value\":\"VALUE\"}],\"image\":\"image\",\"name\":\"init-container-with-env\",\"resources\":{},\"volumeMounts\":[{\"mountPath\":\"/etc/ssl/certs\",\"name\":\"ca-certs\",\"readOnly\":true}]}},{\"op\":\"add\",\"path\":\"/spec/initContainers/0/env\",\"value\":[{\"name\":\"CA_CERTS_DATA\",\"value\":\"some-ca-certs-data\"}]},{\"op\":\"add\",\"path\":\"/spec/initContainers/0/volumeMounts\",\"value\":[{\"mountPath\":\"/workspace\",\"name\":\"ca-certs\"}]},{\"op\":\"add\",\"path\":\"/spec/initContainers/0/imagePullPolicy\",\"value\":\"IfNotPresent\"},{\"op\": \"add\", \"path\": \"/spec/initContainers/0/securityContext\", \"value\": {\"allowPrivilegeEscalation\": false, \"capabilities\": {\"drop\": [\"ALL\"]}, \"privileged\": false, \"runAsNonRoot\": true, \"seccompProfile\": {\"type\": \"RuntimeDefault\"}}},{\"op\":\"replace\",\"path\":\"/spec/initContainers/0/name\",\"value\":\"setup-ca-certs\"},{\"op\":\"replace\",\"path\":\"/spec/initContainers/0/image\",\"value\":\"some-ca-certs-image\"},{\"op\":\"add\",\"path\":\"/spec/initContainers/0/workingDir\",\"value\":\"/workspace\"},{\"op\":\"replace\",\"path\":\"/spec/initContainers/1/name\",\"value\":\"init-container-without-env\"},{\"op\":\"add\",\"path\":\"/spec/initContainers/1/volumeMounts\",\"value\":[{\"mountPath\":\"/etc/ssl/certs\",\"name\":\"ca-certs\",\"readOnly\":true}]},{\"op\":\"remove\",\"path\":\"/spec/initContainers/1/env\"},{\"op\":\"add\",\"path\":\"/spec/containers/0/volumeMounts\",\"value\":[{\"mountPath\":\"/etc/ssl/certs\",\"name\":\"ca-certs\",\"readOnly\":true}]},{\"op\":\"add\",\"path\":\"/spec/containers/1/volumeMounts\",\"value\":[{\"mountPath\":\"/etc/ssl/certs\",\"name\":\"ca-certs\",\"readOnly\":true}]}]"
 			var expectedPatch []jsonpatch.JsonPatchOperation
 			err = json.Unmarshal([]byte(expectedJSON), &expectedPatch)
 			require.NoError(t, err)
@@ -1312,7 +1356,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 				Resource:  metav1.GroupVersionResource{Version: "v1", Resource: "pods"},
 			}
 
-			ac, err := podwebhook.NewAdmissionController(
+			ac, err := certinjectionwebhook.NewAdmissionController(
 				name,
 				path,
 				func(ctx context.Context) context.Context { return ctx },
@@ -1334,7 +1378,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 			err = json.Unmarshal(response.Patch, &actualPatch)
 			require.NoError(t, err)
 
-			expectedJSON := "[{\"op\":\"add\",\"path\":\"/spec/volumes\",\"value\":[{\"emptyDir\":{},\"name\":\"ca-certs\"}]},{\"op\":\"add\",\"path\":\"/spec/imagePullSecrets/1\",\"value\":{\"name\":\"system-registry-credentials\"}},{\"op\":\"add\",\"path\":\"/spec/initContainers/2\",\"value\":{\"env\":[{\"name\":\"EXISTING\",\"value\":\"VALUE\"}],\"image\":\"image\",\"name\":\"init-container-with-env\",\"resources\":{},\"volumeMounts\":[{\"mountPath\":\"/etc/ssl/certs\",\"name\":\"ca-certs\",\"readOnly\":true}]}},{\"op\":\"add\",\"path\":\"/spec/initContainers/0/env\",\"value\":[{\"name\":\"CA_CERTS_DATA\",\"value\":\"some-ca-certs-data\"}]},{\"op\":\"add\",\"path\":\"/spec/initContainers/0/volumeMounts\",\"value\":[{\"mountPath\":\"/workspace\",\"name\":\"ca-certs\"}]},{\"op\":\"add\",\"path\":\"/spec/initContainers/0/imagePullPolicy\",\"value\":\"IfNotPresent\"},{\"op\":\"replace\",\"path\":\"/spec/initContainers/0/name\",\"value\":\"setup-ca-certs\"},{\"op\":\"replace\",\"path\":\"/spec/initContainers/0/image\",\"value\":\"some-ca-certs-image\"},{\"op\":\"add\",\"path\":\"/spec/initContainers/0/workingDir\",\"value\":\"/workspace\"},{\"op\":\"replace\",\"path\":\"/spec/initContainers/1/name\",\"value\":\"init-container-without-env\"},{\"op\":\"add\",\"path\":\"/spec/initContainers/1/volumeMounts\",\"value\":[{\"mountPath\":\"/etc/ssl/certs\",\"name\":\"ca-certs\",\"readOnly\":true}]},{\"op\":\"remove\",\"path\":\"/spec/initContainers/1/env\"},{\"op\":\"add\",\"path\":\"/spec/containers/0/volumeMounts\",\"value\":[{\"mountPath\":\"/etc/ssl/certs\",\"name\":\"ca-certs\",\"readOnly\":true}]},{\"op\":\"add\",\"path\":\"/spec/containers/1/volumeMounts\",\"value\":[{\"mountPath\":\"/etc/ssl/certs\",\"name\":\"ca-certs\",\"readOnly\":true}]}]"
+			expectedJSON := "[{\"op\":\"add\",\"path\":\"/spec/volumes\",\"value\":[{\"emptyDir\":{},\"name\":\"ca-certs\"}]},{\"op\":\"add\",\"path\":\"/spec/imagePullSecrets/1\",\"value\":{\"name\":\"system-registry-credentials\"}},{\"op\":\"add\",\"path\":\"/spec/initContainers/2\",\"value\":{\"env\":[{\"name\":\"EXISTING\",\"value\":\"VALUE\"}],\"image\":\"image\",\"name\":\"init-container-with-env\",\"resources\":{},\"volumeMounts\":[{\"mountPath\":\"/etc/ssl/certs\",\"name\":\"ca-certs\",\"readOnly\":true}]}},{\"op\":\"add\",\"path\":\"/spec/initContainers/0/env\",\"value\":[{\"name\":\"CA_CERTS_DATA\",\"value\":\"some-ca-certs-data\"}]},{\"op\":\"add\",\"path\":\"/spec/initContainers/0/volumeMounts\",\"value\":[{\"mountPath\":\"/workspace\",\"name\":\"ca-certs\"}]},{\"op\":\"add\",\"path\":\"/spec/initContainers/0/imagePullPolicy\",\"value\":\"IfNotPresent\"},{\"op\": \"add\", \"path\": \"/spec/initContainers/0/securityContext\", \"value\": {\"allowPrivilegeEscalation\": false, \"capabilities\": {\"drop\": [\"ALL\"]}, \"privileged\": false, \"runAsNonRoot\": true, \"seccompProfile\": {\"type\": \"RuntimeDefault\"}}},{\"op\":\"replace\",\"path\":\"/spec/initContainers/0/name\",\"value\":\"setup-ca-certs\"},{\"op\":\"replace\",\"path\":\"/spec/initContainers/0/image\",\"value\":\"some-ca-certs-image\"},{\"op\":\"add\",\"path\":\"/spec/initContainers/0/workingDir\",\"value\":\"/workspace\"},{\"op\":\"replace\",\"path\":\"/spec/initContainers/1/name\",\"value\":\"init-container-without-env\"},{\"op\":\"add\",\"path\":\"/spec/initContainers/1/volumeMounts\",\"value\":[{\"mountPath\":\"/etc/ssl/certs\",\"name\":\"ca-certs\",\"readOnly\":true}]},{\"op\":\"remove\",\"path\":\"/spec/initContainers/1/env\"},{\"op\":\"add\",\"path\":\"/spec/containers/0/volumeMounts\",\"value\":[{\"mountPath\":\"/etc/ssl/certs\",\"name\":\"ca-certs\",\"readOnly\":true}]},{\"op\":\"add\",\"path\":\"/spec/containers/1/volumeMounts\",\"value\":[{\"mountPath\":\"/etc/ssl/certs\",\"name\":\"ca-certs\",\"readOnly\":true}]}]"
 			var expectedPatch []jsonpatch.JsonPatchOperation
 			err = json.Unmarshal([]byte(expectedJSON), &expectedPatch)
 			require.NoError(t, err)
@@ -1345,7 +1389,7 @@ func testPodAdmissionController(t *testing.T, when spec.G, it spec.S) {
 	})
 
 	it("#Path returns path", func() {
-		ac, err := podwebhook.NewAdmissionController(name, path, nil, []string{"label"}, nil, nil, "", "", corev1.LocalObjectReference{})
+		ac, err := certinjectionwebhook.NewAdmissionController(name, path, nil, []string{"label"}, nil, nil, "", "", corev1.LocalObjectReference{})
 		require.NoError(t, err)
 
 		require.Equal(t, ac.Path(), path)

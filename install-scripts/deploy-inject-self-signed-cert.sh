@@ -27,29 +27,17 @@ if [[ ${app_registry_kind} = "private" ]] && [[ ${is_self_signed_certificate} = 
     echo "app_registry_cert_path file exists"
   else
     echo "plz check app_registry_cert_path"
-    return 
+    return
   fi
-else 
+else
   echo "plz check variable app_registry_kind or is_self_signed_certificate"
-  return 
+  return
 fi
 
+ytt -f ./support-files/cert-injection-webhook-config \
+      --data-value-file ca_cert_data=${app_registry_cert_path} \
+      --data-value-yaml labels="[kpack.io/build, private-repo-cert-injection]"  > support-files/cert-injection-webhook/manifest.yaml
 
-
-
-ytt -f ./support-files/cert-injection-webhook/deployments/k8s \
-    -v pod_webhook_image=opakorea/pod-webhook-image \
-    -v setup_ca_certs_image=opakorea/setup-ca-certs-image \
-    --data-value-file ca_cert_data=${app_registry_cert_path} \
-    --data-value-yaml labels="[kpack.io/build, private-repo-cert-injection]"  > support-files/cert-injection-webhook/manifest.yaml
-
-cat << EOF >> support-files/cert-injection-webhook/manifest.yaml
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: cert-injection-webhook
-EOF
 
 kapp deploy -a cert-injection-webhook -f ./support-files/cert-injection-webhook/manifest.yaml -y
 
