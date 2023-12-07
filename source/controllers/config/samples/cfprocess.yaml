@@ -1,0 +1,22 @@
+---
+# Defines a CFProcess for a given app. Results in a AppWorkload.
+apiVersion: korifi.cloudfoundry.org/v1alpha1
+kind: CFProcess
+metadata:  # korifi.cloudfoundry.org/ labels are all managed by a mutating webhook based on appRef and its droplet
+  name: 99dcda7d-1fa1-4a91-b437-fbdba20et56y
+  namespace: cf
+spec:
+  appRef:
+    name: 14dcda7d-1fa1-4a91-b437-fbdba20e8c5a
+  command: bundle exec rackup config.ru -p $PORT -o 0.0.0.0
+  diskQuotaMB: 512
+  healthCheck:
+    type: process
+    data:
+      invocationTimeoutSeconds: 0
+      timeoutSeconds: 0
+  desiredInstances: 4 #desired instances
+  memoryMB: 500
+  ports:
+    - 8080
+  processType: web

@@ -1,6 +1,5 @@
 #!/bin/bash
-
 source variables.yml
 
-kapp delete -a sidecar
-
+# delete sidecar
+helm uninstall sidecar --namespace="$sidecar_namespace" 

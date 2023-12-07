@@ -10,32 +10,31 @@ source variables.yml
 # labels 또는 annotations을 설정하여 해당 labels 또는 annotations을 가진 POD가 배포될 시 컨테이너 내부에 인증서를 삽입한다.
 ################################################################################################################
 # 사용 방법
-# 1. insecure-registry 설정을 진행한다. (CRI-O 기준 설정 가이드 : https://github.com/K-PaaS/container-platform/blob/master/install-guide/bosh/cp-bosh-deployment-spray-guide-v1.1.md#3.1)
-# 2. variables.yml 설정을 진행한다.
-# 2-1. is_self_signed_certificate=true
-# 2-2. app_registry_cert_path=support-files/private-repository.ca
-# 3. app_registry_cert_path에 위치한 파일에 Private Repository에 사용된 인증서 CA를 넣는다.
-# 4. deploy-inject-self-signed-cert.sh를 실행한다.
-# 5. Sidecar 설치 과정에 따라 2.generate-values.sh, 3.rendering-values.sh 스크립트를 실행한다.
-# 6. 4.deploy-sidecar.sh 스크립트를 실행하여 Sidecar를 설치한다.
+# 1. Kubernetes의 사용할 Registry에 대한 insecure-registry 설정을 진행한다.
+# 2. 이하의 과정은 Sidecar를 이용하여 Application을 배포하기 전 어느 시점에 해도 무방하다. 
+# 3. variables.yml 설정을 진행한다.
+# 3-1. is_self_signed_certificate=true
+# 3-2. app_registry_cert_path=support-files/private-repository.ca
+# 4. app_registry_cert_path에 위치한 파일에 Private Repository에 사용된 인증서 CA를 넣는다.
+# 5. deploy-inject-self-signed-cert.sh를 실행한다.
 ################################################################################################################
 
 
 
-if [[ ${app_registry_kind} = "private" ]] && [[ ${is_self_signed_certificate} = "true" ]]; then
-  if [[ -e $app_registry_cert_path ]]; then
-    echo "app_registry_cert_path file exists"
+if [[ ${use_dockerhub} = false ]] && [[ ${is_self_signed_certificate} = "true" ]]; then
+  if [[ -e $registry_cert_path ]]; then
+    echo "registry_cert_path file exists"
   else
-    echo "plz check app_registry_cert_path"
+    echo "plz check registry_cert_path"
     return
   fi
 else
-  echo "plz check variable app_registry_kind or is_self_signed_certificate"
+  echo "plz check variable registry_kind or is_self_signed_certificate"
   return
 fi
 
 ytt -f ./support-files/cert-injection-webhook-config \
-      --data-value-file ca_cert_data=${app_registry_cert_path} \
+      --data-value-file ca_cert_data=${registry_cert_path} \
       --data-value-yaml labels="[kpack.io/build, private-repo-cert-injection]"  > support-files/cert-injection-webhook/manifest.yaml
 
 

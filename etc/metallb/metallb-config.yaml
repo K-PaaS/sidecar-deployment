@@ -1,0 +1,8 @@
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: kpaas-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - 10.0.1.10-10.0.1.100  ## Kubernetes node ip 대역

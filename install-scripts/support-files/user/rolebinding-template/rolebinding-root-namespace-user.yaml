@@ -1,0 +1,15 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: my-kpaas-user-root-namespace-user
+  namespace: kpaas
+  labels:
+    cloudfoundry.org/role-guid: my-service-account-user-guid
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: korifi-controllers-root-namespace-user
+subjects:
+  - kind: ServiceAccount
+    name: my-service-account-namespace
+    namespace: my-service-account-namespace

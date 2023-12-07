@@ -1,0 +1,15 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: my-service-account-space-developer
+  namespace: my-space-guid
+  labels:
+    cloudfoundry.org/role-guid: my-service-account-space-user-guid
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: korifi-controllers-space-developer
+subjects:
+  - kind: ServiceAccount
+    name: my-service-account
+    namespace: my-service-account-namespace
