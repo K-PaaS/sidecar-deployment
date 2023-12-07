@@ -1,6 +1,0 @@
-#!/bin/bash
-
-## LOGGING VARIABLE
-ENABLE_LOGGING_SERVICE=false                        # (e.g. true or false)
-LOGGING_OUTPUT_PLUGIN=influxdb                      # Logging output plugin (influxdb or http) --> recommend using influxdb plugin
-FLUENTD_NAMESPACE=cf-system                         # Fluentd Namespace(Kubernetes) Name

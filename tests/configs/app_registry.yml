@@ -1,7 +1,0 @@
-#@data/values
----
-app_registry:
-  hostname: gcr.io
-  repository_prefix: prefix
-  username: bob
-  password: 123password
