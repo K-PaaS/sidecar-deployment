@@ -23,14 +23,16 @@ EOF
     exit 1
   fi
 
-  sa_namespace=$root_namespace
   if [[ $1 == sa ]]; then
     echo $1
+    echo -n "plz input service acount namespace : "
+    read sa_namespace
     if [[ -z $(kubectl get sa -n $sa_namespace $2) ]]; then
-      echo "plz username name"
+      echo "plz check username & namespace"
       exit 1
     fi
   fi
+
 
 
   if [[ $1 == ua ]]; then
