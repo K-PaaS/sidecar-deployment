@@ -25,7 +25,6 @@ import (
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -109,6 +108,7 @@ func NewAppWorkloadReconciler(
 func (r *AppWorkloadReconciler) SetupWithManager(mgr ctrl.Manager) *builder.Builder {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&korifiv1alpha1.AppWorkload{}).
+		Owns(&appsv1.StatefulSet{}).
 		Watches(
 			new(appsv1.StatefulSet),
 			handler.EnqueueRequestsFromMapFunc(r.enqueueAppWorkloadRequests),
@@ -151,14 +151,16 @@ func filterAppWorkloads(object client.Object) bool {
 func (r *AppWorkloadReconciler) ReconcileResource(ctx context.Context, appWorkload *korifiv1alpha1.AppWorkload) (ctrl.Result, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
-	if appWorkload.Spec.RunnerName != AppWorkloadReconcilerName {
-		return ctrl.Result{}, nil
-	}
+	var err error
+	readyConditionBuilder := k8s.NewReadyConditionBuilder(appWorkload)
+	defer func() {
+		meta.SetStatusCondition(&appWorkload.Status.Conditions, readyConditionBuilder.WithError(err).Build())
+	}()
 
 	appWorkload.Status.ObservedGeneration = appWorkload.Generation
 	log.V(1).Info("set observed generation", "generation", appWorkload.Status.ObservedGeneration)
 
-	shared.GetConditionOrSetAsUnknown(&appWorkload.Status.Conditions, korifiv1alpha1.ReadyConditionType, appWorkload.Generation)
+	shared.GetConditionOrSetAsUnknown(&appWorkload.Status.Conditions, korifiv1alpha1.StatusConditionReady, appWorkload.Generation)
 
 	statefulSet, err := r.workloadsToStSet.Convert(appWorkload)
 	// Not clear what errors this would produce, but we may use it later
@@ -167,17 +169,17 @@ func (r *AppWorkloadReconciler) ReconcileResource(ctx context.Context, appWorklo
 		return ctrl.Result{}, err
 	}
 
-	orig := &appsv1.StatefulSet{
+	createdStSet := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      statefulSet.Name,
 			Namespace: statefulSet.Namespace,
 		},
 	}
-	_, err = controllerutil.CreateOrPatch(ctx, r.k8sClient, orig, func() error {
-		orig.Labels = statefulSet.Labels
-		orig.Annotations = statefulSet.Annotations
-		orig.OwnerReferences = statefulSet.OwnerReferences
-		orig.Spec = statefulSet.Spec
+	_, err = controllerutil.CreateOrPatch(ctx, r.k8sClient, createdStSet, func() error {
+		createdStSet.Labels = statefulSet.Labels
+		createdStSet.Annotations = statefulSet.Annotations
+		createdStSet.OwnerReferences = statefulSet.OwnerReferences
+		createdStSet.Spec = statefulSet.Spec
 
 		return nil
 	})
@@ -186,29 +188,14 @@ func (r *AppWorkloadReconciler) ReconcileResource(ctx context.Context, appWorklo
 		return ctrl.Result{}, err
 	}
 
-	updatedStatefulSet := &appsv1.StatefulSet{}
-	err = r.k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), updatedStatefulSet)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return ctrl.Result{}, nil
-		} else {
-			log.Info("error when fetching StatefulSet", "StatefulSet.Name", statefulSet.Name, "StatefulSet.Namespace", statefulSet.Namespace, "reason", err)
-			return ctrl.Result{}, err
-		}
-	}
-
-	err = r.pdb.Update(ctx, updatedStatefulSet)
+	err = r.pdb.Update(ctx, createdStSet)
 	if err != nil {
 		log.Info("error when creating or patching pod disruption budget", "reason", err)
 		return ctrl.Result{}, err
 	}
 
-	meta.SetStatusCondition(&appWorkload.Status.Conditions, metav1.Condition{
-		Type:               shared.StatusConditionReady,
-		Status:             metav1.ConditionTrue,
-		Reason:             shared.StatusConditionReady,
-		ObservedGeneration: appWorkload.Generation,
-	})
+	appWorkload.Status.ActualInstances = createdStSet.Status.Replicas
 
+	readyConditionBuilder.Ready()
 	return ctrl.Result{}, nil
 }

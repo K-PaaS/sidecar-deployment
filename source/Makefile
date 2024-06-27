@@ -30,7 +30,7 @@ manifests:
 
 generate:
 	@for comp in $(CONTROLLERS); do make -C $$comp generate; done
-	##go run ./scripts/helmdoc/main.go > README.helm.md
+	go run ./scripts/helmdoc/main.go > README.helm.md
 
 generate-fakes:
 	go generate ./...
@@ -42,14 +42,16 @@ fmt: install-gofumpt install-shfmt
 vet: ## Run go vet against code.
 	go vet ./...
 
-lint: fmt vet gosec staticcheck
-	golangci-lint run -v
+lint: fmt vet gosec staticcheck golangci-lint
 
 gosec: install-gosec
 	$(GOSEC) --exclude=G101,G304,G401,G404,G505 --exclude-dir=tests ./...
 
 staticcheck: install-staticcheck
 	$(STATICCHECK) ./...
+
+golangci-lint: install-golangci-lint
+	$(GOLANGCILINT) run
 
 test: lint
 	@for comp in $(COMPONENTS); do make -C $$comp test; done
@@ -82,7 +84,7 @@ install-shfmt:
 
 VENDIR = $(shell go env GOPATH)/bin/vendir
 install-vendir:
-	go install github.com/vmware-tanzu/carvel-vendir/cmd/vendir@latest
+	go install carvel.dev/vendir/cmd/vendir@latest
 
 GOSEC = $(shell go env GOPATH)/bin/gosec
 install-gosec:
@@ -91,6 +93,10 @@ install-gosec:
 STATICCHECK = $(shell go env GOPATH)/bin/staticcheck
 install-staticcheck:
 	go install honnef.co/go/tools/cmd/staticcheck@latest
+
+GOLANGCILINT = $(shell go env GOPATH)/bin/golangci-lint
+install-golangci-lint:
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
 vendir-update-dependencies: install-vendir
 	$(VENDIR) sync --chdir tests

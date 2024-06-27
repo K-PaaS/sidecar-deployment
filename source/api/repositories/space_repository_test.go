@@ -7,8 +7,8 @@ import (
 
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	"code.cloudfoundry.org/korifi/api/repositories"
+	"code.cloudfoundry.org/korifi/api/repositories/fakeawaiter"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
-	"code.cloudfoundry.org/korifi/controllers/controllers/shared"
 	"code.cloudfoundry.org/korifi/tests/matchers"
 	"code.cloudfoundry.org/korifi/tools"
 	"code.cloudfoundry.org/korifi/tools/k8s"
@@ -25,7 +25,7 @@ import (
 var _ = Describe("SpaceRepository", func() {
 	var (
 		orgRepo          *repositories.OrgRepo
-		conditionAwaiter *FakeAwaiter[
+		conditionAwaiter *fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFSpace,
 			korifiv1alpha1.CFSpaceList,
 			*korifiv1alpha1.CFSpaceList,
@@ -34,13 +34,13 @@ var _ = Describe("SpaceRepository", func() {
 	)
 
 	BeforeEach(func() {
-		orgRepo = repositories.NewOrgRepo(rootNamespace, k8sClient, userClientFactory, nsPerms, &FakeAwaiter[
+		orgRepo = repositories.NewOrgRepo(rootNamespace, k8sClient, userClientFactory, nsPerms, &fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFOrg,
 			korifiv1alpha1.CFOrgList,
 			*korifiv1alpha1.CFOrgList,
 		]{})
 
-		conditionAwaiter = &FakeAwaiter[
+		conditionAwaiter = &fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFSpace,
 			korifiv1alpha1.CFSpaceList,
 			*korifiv1alpha1.CFSpaceList,
@@ -74,7 +74,7 @@ var _ = Describe("SpaceRepository", func() {
 				Expect(k8s.Patch(ctx, k8sClient, cfSpace, func() {
 					cfSpace.Status.GUID = cfSpace.Name
 					meta.SetStatusCondition(&cfSpace.Status.Conditions, metav1.Condition{
-						Type:    "Ready",
+						Type:    korifiv1alpha1.StatusConditionReady,
 						Status:  conditionStatus,
 						Reason:  "blah",
 						Message: conditionMessage,
@@ -123,7 +123,7 @@ var _ = Describe("SpaceRepository", func() {
 				obj, conditionType := conditionAwaiter.AwaitConditionArgsForCall(0)
 				Expect(obj.GetName()).To(Equal(cfSpace.Name))
 				Expect(obj.GetNamespace()).To(Equal(orgGUID))
-				Expect(conditionType).To(Equal(shared.StatusConditionReady))
+				Expect(conditionType).To(Equal(korifiv1alpha1.StatusConditionReady))
 			})
 
 			It("creates a CFSpace resource in the org namespace", func() {
@@ -227,7 +227,7 @@ var _ = Describe("SpaceRepository", func() {
 		When("the space anchor is not ready", func() {
 			BeforeEach(func() {
 				meta.SetStatusCondition(&(space11.Status.Conditions), metav1.Condition{
-					Type:    "Ready",
+					Type:    korifiv1alpha1.StatusConditionReady,
 					Status:  metav1.ConditionFalse,
 					Reason:  "cus",
 					Message: "cus",

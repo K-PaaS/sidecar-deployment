@@ -11,9 +11,8 @@ import (
 	"code.cloudfoundry.org/korifi/api/authorization"
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
-	"code.cloudfoundry.org/korifi/controllers/controllers/shared"
 	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/env"
-	"code.cloudfoundry.org/korifi/controllers/webhooks"
+	"code.cloudfoundry.org/korifi/controllers/webhooks/validation"
 	"code.cloudfoundry.org/korifi/tools/k8s"
 
 	"github.com/google/uuid"
@@ -42,20 +41,20 @@ type AppRepo struct {
 	namespaceRetriever   NamespaceRetriever
 	userClientFactory    authorization.UserK8sClientFactory
 	namespacePermissions *authorization.NamespacePermissions
-	appConditionAwaiter  ConditionAwaiter[*korifiv1alpha1.CFApp]
+	appAwaiter           Awaiter[*korifiv1alpha1.CFApp]
 }
 
 func NewAppRepo(
 	namespaceRetriever NamespaceRetriever,
 	userClientFactory authorization.UserK8sClientFactory,
 	authPerms *authorization.NamespacePermissions,
-	appConditionAwaiter ConditionAwaiter[*korifiv1alpha1.CFApp],
+	appAwaiter Awaiter[*korifiv1alpha1.CFApp],
 ) *AppRepo {
 	return &AppRepo{
 		namespaceRetriever:   namespaceRetriever,
 		userClientFactory:    userClientFactory,
 		namespacePermissions: authPerms,
-		appConditionAwaiter:  appConditionAwaiter,
+		appAwaiter:           appAwaiter,
 	}
 }
 
@@ -248,8 +247,8 @@ func (f *AppRepo) CreateApp(ctx context.Context, authInfo authorization.Info, ap
 	cfApp := appCreateMessage.toCFApp()
 	err = userClient.Create(ctx, &cfApp)
 	if err != nil {
-		if validationError, ok := webhooks.WebhookErrorToValidationError(err); ok {
-			if validationError.Type == webhooks.DuplicateNameErrorType {
+		if validationError, ok := validation.WebhookErrorToValidationError(err); ok {
+			if validationError.Type == validation.DuplicateNameErrorType {
 				return AppRecord{}, apierrors.NewUniquenessError(err, validationError.GetMessage())
 			}
 		}
@@ -374,12 +373,14 @@ func (f *AppRepo) PatchAppEnvVars(ctx context.Context, authInfo authorization.In
 	}
 
 	_, err = controllerutil.CreateOrPatch(ctx, userClient, &secretObj, func() error {
-		secretObj.StringData = map[string]string{}
+		if secretObj.Data == nil {
+			secretObj.Data = map[string][]byte{}
+		}
 		for k, v := range message.EnvironmentVariables {
 			if v == nil {
 				delete(secretObj.Data, k)
 			} else {
-				secretObj.StringData[k] = *v
+				secretObj.Data[k] = []byte(*v)
 			}
 		}
 		return nil
@@ -403,7 +404,6 @@ func (f *AppRepo) CreateOrPatchAppEnvVars(ctx context.Context, authInfo authoriz
 		secretObj.StringData = envVariables.EnvironmentVariables
 		return nil
 	})
-
 	if err != nil {
 		return AppEnvVarsRecord{}, apierrors.FromK8sError(err, AppEnvResourceType)
 	}
@@ -430,7 +430,7 @@ func (f *AppRepo) SetCurrentDroplet(ctx context.Context, authInfo authorization.
 		return CurrentDropletRecord{}, fmt.Errorf("failed to set app droplet: %w", apierrors.FromK8sError(err, AppResourceType))
 	}
 
-	_, err = f.appConditionAwaiter.AwaitCondition(ctx, userClient, cfApp, shared.StatusConditionReady)
+	_, err = f.appAwaiter.AwaitCondition(ctx, userClient, cfApp, korifiv1alpha1.StatusConditionReady)
 	if err != nil {
 		return CurrentDropletRecord{}, fmt.Errorf("failed to await the app staged condition: %w", apierrors.FromK8sError(err, AppResourceType))
 	}
@@ -455,10 +455,26 @@ func (f *AppRepo) SetAppDesiredState(ctx context.Context, authInfo authorization
 	}
 
 	err = k8s.PatchResource(ctx, userClient, cfApp, func() {
-		cfApp.Spec.DesiredState = korifiv1alpha1.DesiredState(message.DesiredState)
+		cfApp.Spec.DesiredState = korifiv1alpha1.AppState(message.DesiredState)
 	})
 	if err != nil {
 		return AppRecord{}, fmt.Errorf("failed to set app desired state: %w", apierrors.FromK8sError(err, AppResourceType))
+	}
+
+	_, err = f.appAwaiter.AwaitState(ctx, userClient, cfApp, func(a *korifiv1alpha1.CFApp) error {
+		if _, readyConditionErr := f.appAwaiter.AwaitCondition(ctx, userClient, a, korifiv1alpha1.StatusConditionReady); err != nil {
+			return readyConditionErr
+		}
+
+		if a.Spec.DesiredState != korifiv1alpha1.AppState(message.DesiredState) ||
+			a.Status.ActualState != korifiv1alpha1.AppState(message.DesiredState) {
+			return fmt.Errorf("desired state %q not reached; actual state: %q", message.DesiredState, a.Status.ActualState)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return AppRecord{}, apierrors.FromK8sError(err, AppResourceType)
 	}
 
 	return cfAppToAppRecord(*cfApp), nil
@@ -607,7 +623,7 @@ func (m *CreateAppMessage) toCFApp() korifiv1alpha1.CFApp {
 		},
 		Spec: korifiv1alpha1.CFAppSpec{
 			DisplayName:   m.Name,
-			DesiredState:  korifiv1alpha1.DesiredState(m.State),
+			DesiredState:  korifiv1alpha1.AppState(m.State),
 			EnvSecretName: GenerateEnvSecretName(guid),
 			Lifecycle: korifiv1alpha1.Lifecycle{
 				Type: korifiv1alpha1.LifecycleType(m.Lifecycle.Type),
@@ -663,7 +679,7 @@ func cfAppToAppRecord(cfApp korifiv1alpha1.CFApp) AppRecord {
 		CreatedAt:             cfApp.CreationTimestamp.Time,
 		UpdatedAt:             getLastUpdatedTime(&cfApp),
 		DeletedAt:             golangTime(cfApp.DeletionTimestamp),
-		IsStaged:              meta.IsStatusConditionTrue(cfApp.Status.Conditions, shared.StatusConditionReady),
+		IsStaged:              meta.IsStatusConditionTrue(cfApp.Status.Conditions, korifiv1alpha1.StatusConditionReady),
 		envSecretName:         cfApp.Spec.EnvSecretName,
 		vcapServiceSecretName: cfApp.Status.VCAPServicesSecretName,
 		vcapAppSecretName:     cfApp.Status.VCAPApplicationSecretName,
@@ -702,7 +718,6 @@ func appEnvVarsSecretToRecord(envVars corev1.Secret) AppEnvVarsRecord {
 }
 
 func convertByteSliceValuesToStrings(inputMap map[string][]byte) map[string]string {
-	// StringData is a write-only field of a corev1.Secret, the real data lives in .Data and is []byte & base64 encoded
 	outputMap := make(map[string]string, len(inputMap))
 	for k, v := range inputMap {
 		outputMap[k] = string(v)

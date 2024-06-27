@@ -27,19 +27,34 @@ import (
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/controllers/cleanup"
 	"code.cloudfoundry.org/korifi/controllers/config"
-	networkingcontrollers "code.cloudfoundry.org/korifi/controllers/controllers/networking"
-	servicescontrollers "code.cloudfoundry.org/korifi/controllers/controllers/services"
+	"code.cloudfoundry.org/korifi/controllers/controllers/networking/domains"
+	"code.cloudfoundry.org/korifi/controllers/controllers/networking/routes"
+	"code.cloudfoundry.org/korifi/controllers/controllers/services/bindings"
+	"code.cloudfoundry.org/korifi/controllers/controllers/services/instances"
 	"code.cloudfoundry.org/korifi/controllers/controllers/shared"
-	workloadscontrollers "code.cloudfoundry.org/korifi/controllers/controllers/workloads"
+	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/apps"
+	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/build/buildpack"
+	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/build/docker"
 	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/env"
 	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/labels"
+	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/orgs"
+	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/packages"
+	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/processes"
+	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/spaces"
+	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/tasks"
 	"code.cloudfoundry.org/korifi/controllers/coordination"
-	"code.cloudfoundry.org/korifi/controllers/webhooks"
 	controllersfinalizer "code.cloudfoundry.org/korifi/controllers/webhooks/finalizer"
-	"code.cloudfoundry.org/korifi/controllers/webhooks/networking"
-	"code.cloudfoundry.org/korifi/controllers/webhooks/services"
+	domainswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/networking/domains"
+	routeswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/networking/routes"
+	bindingswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/services/bindings"
+	instanceswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/services/instances"
+	"code.cloudfoundry.org/korifi/controllers/webhooks/validation"
 	versionwebhook "code.cloudfoundry.org/korifi/controllers/webhooks/version"
-	"code.cloudfoundry.org/korifi/controllers/webhooks/workloads"
+	appswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/workloads/apps"
+	orgswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/workloads/orgs"
+	packageswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/workloads/packages"
+	spaceswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/workloads/spaces"
+	taskswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/workloads/tasks"
 	jobtaskrunnercontrollers "code.cloudfoundry.org/korifi/job-task-runner/controllers"
 	"code.cloudfoundry.org/korifi/kpack-image-builder/controllers"
 	kpackimagebuilderfinalizer "code.cloudfoundry.org/korifi/kpack-image-builder/controllers/webhooks/finalizer"
@@ -51,7 +66,6 @@ import (
 	"code.cloudfoundry.org/korifi/version"
 
 	buildv1alpha2 "github.com/pivotal/kpack/pkg/apis/build/v1alpha2"
-	contourv1 "github.com/projectcontour/contour/apis/projectcontour/v1"
 	servicebindingv1beta1 "github.com/servicebinding/runtime/apis/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -60,9 +74,11 @@ import (
 	"k8s.io/klog/v2"
 	admission "k8s.io/pod-security-admission/api"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -78,7 +94,7 @@ var (
 func init() {
 	utilruntime.Must(buildv1alpha2.AddToScheme(scheme))
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(contourv1.AddToScheme(scheme))
+	utilruntime.Must(gatewayv1beta1.Install(scheme))
 	utilruntime.Must(korifiv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(servicebindingv1beta1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
@@ -150,65 +166,65 @@ func main() {
 	if os.Getenv("ENABLE_CONTROLLERS") != "false" {
 		imageClient := image.NewClient(k8sClient)
 
-		if err = (workloadscontrollers.NewCFAppReconciler(
+		if err = apps.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
 			ctrl.Log.WithName("controllers").WithName("CFApp"),
 			env.NewVCAPServicesEnvValueBuilder(mgr.GetClient()),
 			env.NewVCAPApplicationEnvValueBuilder(mgr.GetClient(), controllerConfig.ExtraVCAPApplicationValues),
-		)).SetupWithManager(mgr); err != nil {
+		).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "CFApp")
 			os.Exit(1)
 		}
 
 		buildCleaner := cleanup.NewBuildCleaner(mgr.GetClient(), controllerConfig.MaxRetainedBuildsPerApp)
-		if err = (workloadscontrollers.NewCFBuildpackBuildReconciler(
+		if err = buildpack.NewReconciler(
 			mgr.GetClient(),
 			buildCleaner,
 			mgr.GetScheme(),
 			ctrl.Log.WithName("controllers").WithName("CFBuildpackBuild"),
 			controllerConfig,
-			env.NewWorkloadEnvBuilder(mgr.GetClient()),
-		)).SetupWithManager(mgr); err != nil {
+			env.NewAppEnvBuilder(mgr.GetClient()),
+		).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "CFBuildpackBuild")
 			os.Exit(1)
 		}
 
-		if err = (workloadscontrollers.NewCFDockerBuildReconciler(
+		if err = docker.NewReconciler(
 			mgr.GetClient(),
 			buildCleaner,
 			imageClient,
 			mgr.GetScheme(),
 			ctrl.Log.WithName("controllers").WithName("CFDockerBuild"),
-		)).SetupWithManager(mgr); err != nil {
+		).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "CFDockerBuild")
 			os.Exit(1)
 		}
 
-		if err = (workloadscontrollers.NewCFPackageReconciler(
+		if err = packages.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
 			ctrl.Log.WithName("controllers").WithName("CFPackage"),
 			imageClient,
 			cleanup.NewPackageCleaner(mgr.GetClient(), controllerConfig.MaxRetainedPackagesPerApp),
 			controllerConfig.ContainerRegistrySecretNames,
-		)).SetupWithManager(mgr); err != nil {
+		).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "CFPackage")
 			os.Exit(1)
 		}
 
-		if err = (workloadscontrollers.NewCFProcessReconciler(
+		if err = processes.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
 			ctrl.Log.WithName("controllers").WithName("CFProcess"),
 			controllerConfig,
-			env.NewWorkloadEnvBuilder(mgr.GetClient()),
-		)).SetupWithManager(mgr); err != nil {
+			env.NewProcessEnvBuilder(mgr.GetClient()),
+		).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "CFProcess")
 			os.Exit(1)
 		}
 
-		if err = (servicescontrollers.NewCFServiceInstanceReconciler(
+		if err = (instances.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
 			ctrl.Log.WithName("controllers").WithName("CFServiceInstance"),
@@ -217,7 +233,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		if err = (servicescontrollers.NewCFServiceBindingReconciler(
+		if err = (bindings.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
 			ctrl.Log.WithName("controllers").WithName("CFServiceBinding"),
@@ -233,7 +249,7 @@ func main() {
 			}).
 			Defaults(controllerConfig.NamespaceLabels)
 
-		if err = workloadscontrollers.NewCFOrgReconciler(
+		if err = orgs.NewReconciler(
 			mgr.GetClient(),
 			ctrl.Log.WithName("controllers").WithName("CFOrg"),
 			controllerConfig.ContainerRegistrySecretNames,
@@ -243,7 +259,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		if err = workloadscontrollers.NewCFSpaceReconciler(
+		if err = spaces.NewReconciler(
 			mgr.GetClient(),
 			ctrl.Log.WithName("controllers").WithName("CFSpace"),
 			controllerConfig.ContainerRegistrySecretNames,
@@ -262,23 +278,23 @@ func main() {
 			os.Exit(1)
 
 		}
-		if err = workloadscontrollers.NewCFTaskReconciler(
+		if err = tasks.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
 			mgr.GetEventRecorderFor("cftask-controller"),
 			ctrl.Log.WithName("controllers").WithName("CFTask"),
-			env.NewWorkloadEnvBuilder(mgr.GetClient()),
+			env.NewAppEnvBuilder(mgr.GetClient()),
 			taskTTL,
 		).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "CFTask")
 			os.Exit(1)
 		}
 
-		if err = (networkingcontrollers.NewCFDomainReconciler(
+		if err = domains.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
 			ctrl.Log.WithName("controllers").WithName("CFDomain"),
-		)).SetupWithManager(mgr); err != nil {
+		).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "CFDomain")
 			os.Exit(1)
 		}
@@ -348,6 +364,7 @@ func main() {
 				mgr.GetScheme(),
 				jobtaskrunnercontrollers.NewStatusGetter(logger, mgr.GetClient()),
 				jobTTL,
+				controllerConfig.JobTaskRunnerTemporarySetPodSeccompProfile,
 			)
 			if err = taskWorkloadReconciler.SetupWithManager(mgr); err != nil {
 				setupLog.Error(err, "unable to create controller", "controller", "TaskWorkload")
@@ -360,7 +377,10 @@ func main() {
 			if err = statefulsetcontrollers.NewAppWorkloadReconciler(
 				mgr.GetClient(),
 				mgr.GetScheme(),
-				statefulsetcontrollers.NewAppWorkloadToStatefulsetConverter(mgr.GetScheme()),
+				statefulsetcontrollers.NewAppWorkloadToStatefulsetConverter(
+					mgr.GetScheme(),
+					controllerConfig.StatefulsetRunnerTemporarySetPodSeccompProfile,
+				),
 				statefulsetcontrollers.NewPDBUpdater(mgr.GetClient()),
 				logger,
 			).SetupWithManager(mgr); err != nil {
@@ -379,16 +399,14 @@ func main() {
 			}
 		}
 
-		if controllerConfig.IncludeContourRouter {
-			if err = (networkingcontrollers.NewCFRouteReconciler(
-				mgr.GetClient(),
-				mgr.GetScheme(),
-				ctrl.Log.WithName("controllers").WithName("CFRoute"),
-				controllerConfig,
-			)).SetupWithManager(mgr); err != nil {
-				setupLog.Error(err, "unable to create controller", "controller", "CFRoute")
-				os.Exit(1)
-			}
+		if err = routes.NewReconciler(
+			mgr.GetClient(),
+			mgr.GetScheme(),
+			ctrl.Log.WithName("controllers").WithName("CFRoute"),
+			controllerConfig,
+		).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "CFRoute")
+			os.Exit(1)
 		}
 
 	}
@@ -401,7 +419,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		(&workloads.AppRevWebhook{}).SetupWebhookWithManager(mgr)
+		(&appswebhook.AppRevWebhook{}).SetupWebhookWithManager(mgr)
 
 		if err = (&korifiv1alpha1.CFPackage{}).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "CFPackage")
@@ -421,54 +439,62 @@ func main() {
 			os.Exit(1)
 		}
 
-		if err = workloads.NewCFAppValidator(
-			webhooks.NewDuplicateValidator(coordination.NewNameRegistry(mgr.GetClient(), workloads.AppEntityType)),
+		uncachedClient, err := client.New(mgr.GetConfig(), client.Options{
+			Scheme: scheme,
+		})
+		if err != nil {
+			setupLog.Error(err, "unable to create uncached client")
+			os.Exit(1)
+		}
+
+		if err = appswebhook.NewValidator(
+			validation.NewDuplicateValidator(coordination.NewNameRegistry(uncachedClient, appswebhook.AppEntityType)),
 		).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "CFApp")
 			os.Exit(1)
 		}
 
-		if err = networking.NewCFRouteValidator(
-			webhooks.NewDuplicateValidator(coordination.NewNameRegistry(mgr.GetClient(), networking.RouteEntityType)),
+		if err = routeswebhook.NewValidator(
+			validation.NewDuplicateValidator(coordination.NewNameRegistry(uncachedClient, routeswebhook.RouteEntityType)),
 			controllerConfig.CFRootNamespace,
-			mgr.GetClient(),
+			uncachedClient,
 		).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "CFRoute")
 			os.Exit(1)
 		}
 
-		if err = services.NewCFServiceInstanceValidator(
-			webhooks.NewDuplicateValidator(coordination.NewNameRegistry(mgr.GetClient(), services.ServiceInstanceEntityType)),
+		if err = instanceswebhook.NewValidator(
+			validation.NewDuplicateValidator(coordination.NewNameRegistry(uncachedClient, instanceswebhook.ServiceInstanceEntityType)),
 		).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "CFServiceInstance")
 			os.Exit(1)
 		}
 
-		if err = services.NewCFServiceBindingValidator(
-			webhooks.NewDuplicateValidator(coordination.NewNameRegistry(mgr.GetClient(), services.ServiceBindingEntityType)),
+		if err = bindingswebhook.NewCFServiceBindingValidator(
+			validation.NewDuplicateValidator(coordination.NewNameRegistry(uncachedClient, bindingswebhook.ServiceBindingEntityType)),
 		).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "CFServiceBinding")
 			os.Exit(1)
 		}
 
-		if err = networking.NewCFDomainValidator(
-			mgr.GetClient(),
+		if err = domainswebhook.NewValidator(
+			uncachedClient,
 		).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "CFDomain")
 			os.Exit(1)
 		}
 
-		if err = workloads.NewCFOrgValidator(
-			webhooks.NewDuplicateValidator(coordination.NewNameRegistry(mgr.GetClient(), workloads.CFOrgEntityType)),
-			webhooks.NewPlacementValidator(mgr.GetClient(), controllerConfig.CFRootNamespace),
+		if err = orgswebhook.NewValidator(
+			validation.NewDuplicateValidator(coordination.NewNameRegistry(uncachedClient, orgswebhook.CFOrgEntityType)),
+			validation.NewPlacementValidator(uncachedClient, controllerConfig.CFRootNamespace),
 		).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "CFOrg")
 			os.Exit(1)
 		}
 
-		if err = workloads.NewCFSpaceValidator(
-			webhooks.NewDuplicateValidator(coordination.NewNameRegistry(mgr.GetClient(), workloads.CFSpaceEntityType)),
-			webhooks.NewPlacementValidator(mgr.GetClient(), controllerConfig.CFRootNamespace),
+		if err = spaceswebhook.NewValidator(
+			validation.NewDuplicateValidator(coordination.NewNameRegistry(uncachedClient, spaceswebhook.CFSpaceEntityType)),
+			validation.NewPlacementValidator(uncachedClient, controllerConfig.CFRootNamespace),
 		).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "CFSpace")
 			os.Exit(1)
@@ -479,12 +505,12 @@ func main() {
 			os.Exit(1)
 		}
 
-		if err = workloads.NewCFTaskDefaulter(controllerConfig.CFProcessDefaults).SetupWebhookWithManager(mgr); err != nil {
+		if err = taskswebhook.NewDefaulter(controllerConfig.CFProcessDefaults).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "CFTask")
 			os.Exit(1)
 		}
 
-		if err = workloads.NewCFTaskValidator().SetupWebhookWithManager(mgr); err != nil {
+		if err = taskswebhook.NewValidator().SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "CFTask")
 			os.Exit(1)
 		}
@@ -492,7 +518,7 @@ func main() {
 		versionwebhook.NewVersionWebhook(version.Version).SetupWebhookWithManager(mgr)
 		controllersfinalizer.NewControllersFinalizerWebhook().SetupWebhookWithManager(mgr)
 
-		if err = workloads.NewCFPackageValidator().SetupWebhookWithManager(mgr); err != nil {
+		if err = packageswebhook.NewValidator().SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "CFPackage")
 			os.Exit(1)
 		}

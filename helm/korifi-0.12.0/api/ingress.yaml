@@ -1,0 +1,18 @@
+kind: TLSRoute
+apiVersion: gateway.networking.k8s.io/v1alpha2
+metadata:
+  name: korifi-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: korifi
+    namespace: {{ .Release.Namespace }}-gateway
+  hostnames:
+  - {{ .Values.api.apiServer.url }}
+  rules:
+  - backendRefs:
+    - kind: Service
+      name: korifi-api-svc
+      port: 443

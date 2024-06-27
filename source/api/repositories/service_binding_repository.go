@@ -11,8 +11,8 @@ import (
 	"code.cloudfoundry.org/korifi/api/authorization"
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
-	"code.cloudfoundry.org/korifi/controllers/webhooks"
-	"code.cloudfoundry.org/korifi/controllers/webhooks/services"
+	"code.cloudfoundry.org/korifi/controllers/webhooks/services/bindings"
+	"code.cloudfoundry.org/korifi/controllers/webhooks/validation"
 	"code.cloudfoundry.org/korifi/tools/k8s"
 
 	"github.com/google/uuid"
@@ -32,14 +32,14 @@ type ServiceBindingRepo struct {
 	userClientFactory       authorization.UserK8sClientFactory
 	namespacePermissions    *authorization.NamespacePermissions
 	namespaceRetriever      NamespaceRetriever
-	bindingConditionAwaiter ConditionAwaiter[*korifiv1alpha1.CFServiceBinding]
+	bindingConditionAwaiter Awaiter[*korifiv1alpha1.CFServiceBinding]
 }
 
 func NewServiceBindingRepo(
 	namespaceRetriever NamespaceRetriever,
 	userClientFactory authorization.UserK8sClientFactory,
 	namespacePermissions *authorization.NamespacePermissions,
-	bindingConditionAwaiter ConditionAwaiter[*korifiv1alpha1.CFServiceBinding],
+	bindingConditionAwaiter Awaiter[*korifiv1alpha1.CFServiceBinding],
 ) *ServiceBindingRepo {
 	return &ServiceBindingRepo{
 		userClientFactory:       userClientFactory,
@@ -135,8 +135,8 @@ func (r *ServiceBindingRepo) CreateServiceBinding(ctx context.Context, authInfo 
 
 	err = userClient.Create(ctx, cfServiceBinding)
 	if err != nil {
-		if validationError, ok := webhooks.WebhookErrorToValidationError(err); ok {
-			if validationError.Type == services.ServiceBindingErrorType {
+		if validationError, ok := validation.WebhookErrorToValidationError(err); ok {
+			if validationError.Type == bindings.ServiceBindingErrorType {
 				return ServiceBindingRecord{}, apierrors.NewUniquenessError(err, validationError.GetMessage())
 			}
 		}
@@ -144,7 +144,7 @@ func (r *ServiceBindingRepo) CreateServiceBinding(ctx context.Context, authInfo 
 		return ServiceBindingRecord{}, apierrors.FromK8sError(err, ServiceBindingResourceType)
 	}
 
-	cfServiceBinding, err = r.bindingConditionAwaiter.AwaitCondition(ctx, userClient, cfServiceBinding, VCAPServicesSecretAvailableCondition)
+	cfServiceBinding, err = r.bindingConditionAwaiter.AwaitCondition(ctx, userClient, cfServiceBinding, korifiv1alpha1.StatusConditionReady)
 	if err != nil {
 		return ServiceBindingRecord{}, err
 	}

@@ -8,13 +8,12 @@ import (
 	"code.cloudfoundry.org/korifi/api/authorization"
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
-	"code.cloudfoundry.org/korifi/controllers/controllers/shared"
-	"code.cloudfoundry.org/korifi/controllers/controllers/workloads"
+	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/packages"
 	"code.cloudfoundry.org/korifi/tools/dockercfg"
 	"code.cloudfoundry.org/korifi/tools/k8s"
+
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
-
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -45,7 +44,7 @@ type PackageRepo struct {
 	namespacePermissions *authorization.NamespacePermissions
 	repositoryCreator    RepositoryCreator
 	repositoryPrefix     string
-	awaiter              ConditionAwaiter[*korifiv1alpha1.CFPackage]
+	awaiter              Awaiter[*korifiv1alpha1.CFPackage]
 }
 
 func NewPackageRepo(
@@ -54,7 +53,7 @@ func NewPackageRepo(
 	authPerms *authorization.NamespacePermissions,
 	repositoryCreator RepositoryCreator,
 	repositoryPrefix string,
-	awaiter ConditionAwaiter[*korifiv1alpha1.CFPackage],
+	awaiter Awaiter[*korifiv1alpha1.CFPackage],
 ) *PackageRepo {
 	return &PackageRepo{
 		userClientFactory:    userClientFactory,
@@ -81,6 +80,7 @@ type PackageRecord struct {
 }
 
 type ListPackagesMessage struct {
+	GUIDs    []string
 	AppGUIDs []string
 	States   []string
 }
@@ -187,7 +187,7 @@ func (r *PackageRepo) CreatePackage(ctx context.Context, authInfo authorization.
 		}
 	}
 
-	cfPackage, err = r.awaiter.AwaitCondition(ctx, userClient, cfPackage, workloads.InitializedConditionType)
+	cfPackage, err = r.awaiter.AwaitCondition(ctx, userClient, cfPackage, packages.InitializedConditionType)
 	if err != nil {
 		return PackageRecord{}, fmt.Errorf("failed waiting for Initialized condition: %w", err)
 	}
@@ -298,13 +298,14 @@ func (r *PackageRepo) ListPackages(ctx context.Context, authInfo authorization.I
 	}
 
 	preds := []func(korifiv1alpha1.CFPackage) bool{
+		SetPredicate(message.GUIDs, func(s korifiv1alpha1.CFPackage) string { return s.Name }),
 		SetPredicate(message.AppGUIDs, func(s korifiv1alpha1.CFPackage) string { return s.Spec.AppRef.Name }),
 	}
 	if len(message.States) > 0 {
 		stateSet := NewSet(message.States...)
 		preds = append(preds, func(p korifiv1alpha1.CFPackage) bool {
-			return (stateSet.Includes(PackageStateReady) && meta.IsStatusConditionTrue(p.Status.Conditions, shared.StatusConditionReady)) ||
-				(stateSet.Includes(PackageStateAwaitingUpload) && !meta.IsStatusConditionTrue(p.Status.Conditions, shared.StatusConditionReady))
+			return (stateSet.Includes(PackageStateReady) && meta.IsStatusConditionTrue(p.Status.Conditions, korifiv1alpha1.StatusConditionReady)) ||
+				(stateSet.Includes(PackageStateAwaitingUpload) && !meta.IsStatusConditionTrue(p.Status.Conditions, korifiv1alpha1.StatusConditionReady))
 		})
 	}
 
@@ -345,7 +346,7 @@ func (r *PackageRepo) UpdatePackageSource(ctx context.Context, authInfo authoriz
 		return PackageRecord{}, fmt.Errorf("failed to update package source: %w", apierrors.FromK8sError(err, PackageResourceType))
 	}
 
-	cfPackage, err = r.awaiter.AwaitCondition(ctx, userClient, cfPackage, shared.StatusConditionReady)
+	cfPackage, err = r.awaiter.AwaitCondition(ctx, userClient, cfPackage, korifiv1alpha1.StatusConditionReady)
 	if err != nil {
 		return PackageRecord{}, fmt.Errorf("failed awaiting Ready status condition: %w", err)
 	}
@@ -356,7 +357,7 @@ func (r *PackageRepo) UpdatePackageSource(ctx context.Context, authInfo authoriz
 
 func (r *PackageRepo) cfPackageToPackageRecord(cfPackage *korifiv1alpha1.CFPackage) PackageRecord {
 	state := PackageStateAwaitingUpload
-	if meta.IsStatusConditionTrue(cfPackage.Status.Conditions, shared.StatusConditionReady) {
+	if meta.IsStatusConditionTrue(cfPackage.Status.Conditions, korifiv1alpha1.StatusConditionReady) {
 		state = PackageStateReady
 	}
 	return PackageRecord{

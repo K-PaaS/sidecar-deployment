@@ -9,11 +9,11 @@ import (
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	"code.cloudfoundry.org/korifi/api/repositories"
 	"code.cloudfoundry.org/korifi/api/repositories/fake"
+	"code.cloudfoundry.org/korifi/api/repositories/fakeawaiter"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/tests/matchers"
 	"code.cloudfoundry.org/korifi/tools"
 	"code.cloudfoundry.org/korifi/tools/k8s"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -23,12 +23,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var _ = Describe("PackageRepository", func() {
 	var (
 		repoCreator      *fake.RepositoryCreator
-		conditionAwaiter *FakeAwaiter[
+		conditionAwaiter *fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFPackage,
 			korifiv1alpha1.CFPackageList,
 			*korifiv1alpha1.CFPackageList,
@@ -42,7 +43,7 @@ var _ = Describe("PackageRepository", func() {
 
 	BeforeEach(func() {
 		repoCreator = new(fake.RepositoryCreator)
-		conditionAwaiter = &FakeAwaiter[
+		conditionAwaiter = &fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFPackage,
 			korifiv1alpha1.CFPackageList,
 			*korifiv1alpha1.CFPackageList,
@@ -395,8 +396,8 @@ var _ = Describe("PackageRepository", func() {
 					BeforeEach(func() {
 						Expect(k8s.Patch(ctx, k8sClient, cfPackage, func() {
 							meta.SetStatusCondition(&cfPackage.Status.Conditions, metav1.Condition{
-								Type:               "Ready",
-								Status:             "True",
+								Type:               korifiv1alpha1.StatusConditionReady,
+								Status:             metav1.ConditionTrue,
 								Reason:             "Ready",
 								ObservedGeneration: cfPackage.Generation,
 							})
@@ -506,8 +507,8 @@ var _ = Describe("PackageRepository", func() {
 				Expect(k8sClient.Create(ctx, cfPackage)).To(Succeed())
 				Expect(k8s.Patch(ctx, k8sClient, cfPackage, func() {
 					meta.SetStatusCondition(&cfPackage.Status.Conditions, metav1.Condition{
-						Type:               "Ready",
-						Status:             "True",
+						Type:               korifiv1alpha1.StatusConditionReady,
+						Status:             metav1.ConditionTrue,
 						Reason:             "Ready",
 						ObservedGeneration: cfPackage.Generation,
 					})
@@ -553,7 +554,22 @@ var _ = Describe("PackageRepository", func() {
 					))
 				})
 
-				When("app_guids filter is provided", func() {
+				When("the guids filter is provided", func() {
+					BeforeEach(func() {
+						listMessage = repositories.ListPackagesMessage{GUIDs: []string{package1GUID}}
+					})
+
+					It("fetches the specified package", func() {
+						Expect(packageList).To(ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"GUID":    Equal(package1GUID),
+								"AppGUID": Equal(appGUID),
+							}),
+						))
+					})
+				})
+
+				When("the app_guids filter is provided", func() {
 					BeforeEach(func() {
 						listMessage = repositories.ListPackagesMessage{AppGUIDs: []string{appGUID}}
 					})
@@ -569,7 +585,7 @@ var _ = Describe("PackageRepository", func() {
 					})
 				})
 
-				When("State filter is provided", func() {
+				When("the state filter is provided", func() {
 					When("filtering by State=READY", func() {
 						BeforeEach(func() {
 							listMessage = repositories.ListPackagesMessage{States: []string{"READY"}}

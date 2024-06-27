@@ -2,12 +2,14 @@ package payloads
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
 
 	"code.cloudfoundry.org/korifi/api/repositories"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/tools"
 	"github.com/jellydator/validation"
+	"gopkg.in/yaml.v3"
 
 	"code.cloudfoundry.org/bytefmt"
 )
@@ -68,6 +70,21 @@ type ManifestApplicationProcess struct {
 type ManifestApplicationService struct {
 	Name        string  `json:"name" yaml:"name"`
 	BindingName *string `json:"binding_name" yaml:"binding_name"`
+}
+
+func (s *ManifestApplicationService) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode && value.Tag == "!!str" {
+		s.Name = value.Value
+		return nil
+	}
+
+	type manifestApplicationService ManifestApplicationService
+	err := value.Decode((*manifestApplicationService)(s))
+	if err != nil {
+		return fmt.Errorf("invalid service: line %d, column %d: %w", value.Line, value.Column, err)
+	}
+
+	return nil
 }
 
 type ManifestRoute struct {
@@ -247,7 +264,7 @@ func (s ManifestApplicationService) Validate() error {
 	return validation.ValidateStruct(&s, validation.Field(&s.Name, validation.Required))
 }
 
-var unitAmount = regexp.MustCompile(`^\d+(?:B|K|KB|M|MB|G|GB|T|TB)$`)
+var unitAmount = regexp.MustCompile(`^\d+(?:B|K|KB|M|m|MB|mb|G|g|GB|gb|T|t|TB|tb)$`)
 
 func validateAmountWithUnit(value any) error {
 	v, isNil := validation.Indirect(value)
@@ -256,7 +273,7 @@ func validateAmountWithUnit(value any) error {
 	}
 
 	if !unitAmount.MatchString(v.(string)) {
-		return errors.New("must use a supported unit (B, K, KB, M, MB, G, GB, T, or TB)")
+		return errors.New("must use a supported unit (B, K, KB, M, m, MB, mb, G, g, GB, gb, T, t, TB or tb)")
 	}
 
 	mbs, err := bytefmt.ToMegabytes(v.(string))
