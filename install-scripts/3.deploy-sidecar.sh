@@ -1,7 +1,7 @@
 #!/bin/bash
 source variables.yml
 
-HELM_VERSION=0.10.0
+HELM_VERSION=0.12.0
 
 # deploy sidecar
 

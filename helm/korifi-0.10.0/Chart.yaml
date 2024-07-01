@@ -1,6 +1,0 @@
-apiVersion: v2
-name: sidecar
-description: A Helm chart to deploy all sidecar components
-type: application
-version: 0.2.0
-appVersion: "dev"
