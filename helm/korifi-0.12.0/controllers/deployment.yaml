@@ -74,6 +74,12 @@ spec:
         - mountPath: /etc/korifi-controllers-config
           name: korifi-controllers-config
           readOnly: true
+{{- if .Values.containerRegistryCACertSecret }}
+        - mountPath: /etc/ssl/certs/registry-ca.crt
+          name: korifi-registry-ca-cert
+          subPath: ca.crt
+          readOnly: true
+{{- end }}
       {{- include "korifi.podSecurityContext" . | indent 6 }}
       serviceAccountName: korifi-controllers-controller-manager
 {{- if .Values.controllers.nodeSelector }}
@@ -93,3 +99,8 @@ spec:
       - configMap:
           name: korifi-controllers-config
         name: korifi-controllers-config
+{{- if .Values.containerRegistryCACertSecret }}
+      - name: korifi-registry-ca-cert
+        secret:
+          secretName: {{ .Values.containerRegistryCACertSecret }}
+{{- end }}
