@@ -30,6 +30,7 @@ if [[ ${use_dockerhub} = false ]] && [[ ${is_self_signed_certificate} = true ]] 
                 --set=containerRegistryCACertSecret="$cert_secret_name" \
                 --set=kpackImageBuilder.builderRepository=$registry_address/$registry_repositry_name/kpack-builder \
                 --set=api.userCertificateExpirationWarningDuration=$(($user_certificate_expiration_duration_days*24))"h" \
+                --set=networking.gatewayClass="$sidecar_namespace-gateway" \
                 --wait
 elif [[ ${use_dockerhub} = true ]] || [[ ${use_dockerhub} = false && ${is_self_signed_certificate} = false ]] ; then
         helm upgrade --install sidecar ../helm/korifi-$HELM_VERSION \
@@ -42,6 +43,7 @@ elif [[ ${use_dockerhub} = true ]] || [[ ${use_dockerhub} = false && ${is_self_s
                 --set=containerRepositoryPrefix=$registry_address/$registry_repositry_name/ \
                 --set=kpackImageBuilder.builderRepository=$registry_address/$registry_repositry_name/kpack-builder \
                 --set=api.userCertificateExpirationWarningDuration=$(($user_certificate_expiration_duration_days*24))"h" \
+                --set=networking.gatewayClass="$sidecar_namespace-gateway" \
                 --wait
 else
 	echo "plz check variable is_self_signed_certificate or use_dockerhub"
