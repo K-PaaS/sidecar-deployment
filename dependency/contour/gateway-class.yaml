@@ -4,8 +4,3 @@ metadata:
   name: sidecar-gateway
 spec:
   controllerName: projectcontour.io/gateway-controller
-  parametersRef:
-    group: projectcontour.io
-    kind: ContourDeployment
-    namespace: projectcontour
-    name: contour-params

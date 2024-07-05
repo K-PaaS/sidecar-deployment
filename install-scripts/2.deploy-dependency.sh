@@ -17,19 +17,6 @@ kubectl apply -f ../dependency/contour/contour-gateway-provisioner.yaml
 
 gateway_name="${sidecar_namespace}-gateway" yq e  '(select(.kind == "GatewayClass")| .metadata.name = env(gateway_name))' ../dependency/contour/gateway-class.yaml | kubectl apply -f -
 
-
-if [[ ${use_lb} == true ]]; then
-	yq e '(select(.kind == "ContourDeployment") | .spec.envoy.networkPublishing.type = "LoadBalancerService" )' ../dependency/contour/contour-deployment.yaml | kubectl apply -f -
-
-elif [[ ${use_lb} == false ]]; then
-	yq e  '(select(.kind == "ContourDeployment")| .spec.envoy.networkPublishing.type = "NodePortService" )' ../dependency/contour/contour-deployment.yaml | kubectl apply -f -
-
-else
-	echo "plz check variable use_lb"
-	return
-fi
-
-
 ## kpack
 kubectl apply -f ../dependency/kpack/
 
