@@ -7,7 +7,6 @@ import (
 
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/k8sns"
-	. "code.cloudfoundry.org/korifi/controllers/controllers/workloads/testutils"
 	"code.cloudfoundry.org/korifi/tools"
 	"code.cloudfoundry.org/korifi/tools/k8s"
 	"golang.org/x/exp/maps"
@@ -69,7 +68,7 @@ var _ = Describe("K8S NS Reconciler Integration Tests", func() {
 		}
 		reconciler = k8sns.NewReconciler[korifiv1alpha1.CFOrg, *korifiv1alpha1.CFOrg](controllersClient, finalizer, metadataCompiler, []string{})
 
-		orgGUID = PrefixedGUID("cf-org")
+		orgGUID = uuid.NewString()
 		nsObj = &korifiv1alpha1.CFOrg{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:       orgGUID,
@@ -163,7 +162,6 @@ var _ = Describe("K8S NS Reconciler Integration Tests", func() {
 
 			Expect(createdSecret.Data).To(Equal(imageRegistrySecret.Data))
 			Expect(createdSecret.Immutable).To(Equal(imageRegistrySecret.Immutable))
-			Expect(createdSecret.StringData).To(Equal(imageRegistrySecret.StringData))
 			Expect(createdSecret.Type).To(Equal(imageRegistrySecret.Type))
 
 			By("omitting annotations from deployment tools", func() {
@@ -179,10 +177,9 @@ var _ = Describe("K8S NS Reconciler Integration Tests", func() {
 			It("sets the NSObj's Ready condition to 'False'", func() {
 				Expect(reconcileErr).To(MatchError(ContainSubstring("error fetching secret")))
 
-				Expect(meta.IsStatusConditionTrue(nsObj.Status.Conditions, "Ready")).To(BeFalse())
-
-				readyCondition := meta.FindStatusCondition(nsObj.Status.Conditions, "Ready")
+				readyCondition := meta.FindStatusCondition(nsObj.Status.Conditions, korifiv1alpha1.StatusConditionReady)
 				Expect(readyCondition).NotTo(BeNil())
+				Expect(readyCondition.Status).To(Equal(metav1.ConditionFalse))
 				Expect(readyCondition.Message).To(ContainSubstring(fmt.Sprintf(
 					"error fetching secret %q from namespace %q",
 					"i-do-not-exist",

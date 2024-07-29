@@ -23,7 +23,7 @@ func NewVCAPApplicationEnvValueBuilder(k8sClient client.Client, extraValues map[
 	}
 }
 
-func (b *VCAPApplicationEnvValueBuilder) BuildEnvValue(ctx context.Context, cfApp *korifiv1alpha1.CFApp) (map[string]string, error) {
+func (b *VCAPApplicationEnvValueBuilder) BuildEnvValue(ctx context.Context, cfApp *korifiv1alpha1.CFApp) (map[string][]byte, error) {
 	space, err := b.getSpaceFromNamespace(ctx, cfApp.Namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed retrieving space for CFApp: %w", err)
@@ -31,6 +31,11 @@ func (b *VCAPApplicationEnvValueBuilder) BuildEnvValue(ctx context.Context, cfAp
 	org, err := b.getOrgFromNamespace(ctx, space.Namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed retrieving org for CFSpace: %w", err)
+	}
+
+	appURIs, err := b.getAppURIs(ctx, cfApp)
+	if err != nil {
+		return nil, fmt.Errorf("failed retrieving app routes: %w", err)
 	}
 
 	vars := b.extraValues
@@ -44,12 +49,34 @@ func (b *VCAPApplicationEnvValueBuilder) BuildEnvValue(ctx context.Context, cfAp
 	vars["organization_name"] = org.Spec.DisplayName
 	vars["space_id"] = space.Name
 	vars["space_name"] = space.Spec.DisplayName
+	vars["uris"] = appURIs
+	vars["application_uris"] = appURIs
 
 	marshalledVars, _ := json.Marshal(vars)
 
-	return map[string]string{
-		"VCAP_APPLICATION": string(marshalledVars),
+	return map[string][]byte{
+		"VCAP_APPLICATION": marshalledVars,
 	}, nil
+}
+
+func (b *VCAPApplicationEnvValueBuilder) getAppURIs(ctx context.Context, cfApp *korifiv1alpha1.CFApp) ([]string, error) {
+	var appRoutes korifiv1alpha1.CFRouteList
+	err := b.k8sClient.List(
+		ctx,
+		&appRoutes,
+		client.InNamespace(cfApp.Namespace),
+		client.MatchingFields{shared.IndexRouteDestinationAppName: cfApp.Name},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	uris := make([]string, len(appRoutes.Items))
+	for i := range appRoutes.Items {
+		uris[i] = appRoutes.Items[i].Status.URI
+	}
+
+	return uris, nil
 }
 
 func (b *VCAPApplicationEnvValueBuilder) getSpaceFromNamespace(ctx context.Context, ns string) (korifiv1alpha1.CFSpace, error) {

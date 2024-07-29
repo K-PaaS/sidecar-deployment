@@ -1,5 +1,5 @@
 # syntax = docker/dockerfile:experimental
-FROM golang:1.20.8 as builder
+FROM golang:1.22.4 as builder
 
 ARG version=dev
 
@@ -25,6 +25,7 @@ COPY controllers/api controllers/api
 COPY controllers/config controllers/config
 COPY controllers/controllers/shared controllers/controllers/shared
 COPY controllers/controllers/workloads controllers/controllers/workloads
+COPY controllers/controllers/services/credentials controllers/controllers/services/credentials
 COPY controllers/webhooks controllers/webhooks
 COPY tools tools
 COPY version version

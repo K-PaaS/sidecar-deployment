@@ -29,6 +29,7 @@ import (
 	toolsregistry "code.cloudfoundry.org/korifi/tools/registry"
 	"code.cloudfoundry.org/korifi/version"
 
+	chiMiddlewares "github.com/go-chi/chi/middleware"
 	buildv1alpha2 "github.com/pivotal/kpack/pkg/apis/build/v1alpha2"
 	"k8s.io/apimachinery/pkg/util/cache"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -45,7 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
 
-var createTimeout = time.Second * 120
+var conditionTimeout = time.Second * 120
 
 func init() {
 	utilruntime.Must(korifiv1alpha1.AddToScheme(scheme.Scheme))
@@ -126,14 +127,14 @@ func main() {
 		privilegedCRClient,
 		userClientFactory,
 		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFOrg, korifiv1alpha1.CFOrgList](createTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFOrg, korifiv1alpha1.CFOrgList](conditionTimeout),
 	)
 	spaceRepo := repositories.NewSpaceRepo(
 		namespaceRetriever,
 		orgRepo,
 		userClientFactory,
 		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFSpace, korifiv1alpha1.CFSpaceList](createTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFSpace, korifiv1alpha1.CFSpaceList](conditionTimeout),
 	)
 	processRepo := repositories.NewProcessRepo(
 		namespaceRetriever,
@@ -147,7 +148,7 @@ func main() {
 		namespaceRetriever,
 		userClientFactory,
 		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFApp, korifiv1alpha1.CFAppList](createTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFApp, korifiv1alpha1.CFAppList](conditionTimeout),
 	)
 	dropletRepo := repositories.NewDropletRepo(
 		userClientFactory,
@@ -183,18 +184,19 @@ func main() {
 		nsPermissions,
 		toolsregistry.NewRepositoryCreator(cfg.ContainerRegistryType),
 		cfg.ContainerRepositoryPrefix,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFPackage, korifiv1alpha1.CFPackageList](createTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFPackage, korifiv1alpha1.CFPackageList](conditionTimeout),
 	)
 	serviceInstanceRepo := repositories.NewServiceInstanceRepo(
 		namespaceRetriever,
 		userClientFactory,
 		nsPermissions,
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFServiceInstance, korifiv1alpha1.CFServiceInstanceList](conditionTimeout),
 	)
 	serviceBindingRepo := repositories.NewServiceBindingRepo(
 		namespaceRetriever,
 		userClientFactory,
 		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFServiceBinding, korifiv1alpha1.CFServiceBindingList](createTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFServiceBinding, korifiv1alpha1.CFServiceBindingList](conditionTimeout),
 	)
 	buildpackRepo := repositories.NewBuildpackRepository(cfg.BuilderName,
 		userClientFactory,
@@ -221,7 +223,7 @@ func main() {
 		userClientFactory,
 		namespaceRetriever,
 		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFTask, korifiv1alpha1.CFTaskList](createTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFTask, korifiv1alpha1.CFTaskList](conditionTimeout),
 	)
 	metricsRepo := repositories.NewMetricsRepo(userClientFactory)
 
@@ -242,6 +244,7 @@ func main() {
 		middleware.Correlation(ctrl.Log),
 		middleware.CFCliVersion,
 		middleware.HTTPLogging,
+		chiMiddlewares.StripSlashes,
 	)
 
 	authInfoParser := authorization.NewInfoParser()
@@ -261,12 +264,17 @@ func main() {
 	apiHandlers := []routing.Routable{
 		handlers.NewRootV3(*serverURL),
 		handlers.NewRoot(*serverURL),
+		handlers.NewInfoV3(
+			*serverURL,
+			cfg.InfoConfig,
+		),
 		handlers.NewResourceMatches(),
 		handlers.NewApp(
 			*serverURL,
 			appRepo,
 			dropletRepo,
 			processRepo,
+			processStats,
 			routeRepo,
 			domainRepo,
 			spaceRepo,

@@ -4,10 +4,6 @@
 sidecar_namespace=sidecar                                    # sidecar install namespace
 root_namespace=kpaas                                         # sidecar resource namespace
 
-## dependency variable
-use_lb=true                                                  # (e.g. true or false)
-lb_ip=                                                       # if support loadBalancerIP ==> ip input (e.g. 23.45.23.45), not support loadBalancerIP ==> blank
-
 ## sidecar core variable
 system_domain=sidecar.com                                    # sidecar system_domain (e.g. 3.35.135.135.nip.io)
 admin_username=sidecar-admin                                 # sidecar admin username

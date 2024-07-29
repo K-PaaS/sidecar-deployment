@@ -80,7 +80,7 @@ func (r *Reconciler[T, NS]) ReconcileResource(ctx context.Context, obj NS) (ctrl
 		return r.finalizer.Finalize(ctx, obj)
 	}
 
-	shared.GetConditionOrSetAsUnknown(obj.GetStatus().GetConditions(), korifiv1alpha1.ReadyConditionType, obj.GetGeneration())
+	shared.GetConditionOrSetAsUnknown(obj.GetStatus().GetConditions(), korifiv1alpha1.StatusConditionReady, obj.GetGeneration())
 
 	obj.GetStatus().SetGUID(obj.GetName())
 
@@ -143,7 +143,7 @@ func (r *Reconciler[T, NS]) setNotReady(log logr.Logger, obj NS, err error, reas
 	log.Info("not ready yet", "reason", reason, "error", err)
 
 	meta.SetStatusCondition(obj.GetStatus().GetConditions(), metav1.Condition{
-		Type:               shared.StatusConditionReady,
+		Type:               korifiv1alpha1.StatusConditionReady,
 		Status:             metav1.ConditionFalse,
 		Reason:             reason,
 		Message:            err.Error(),
@@ -184,7 +184,6 @@ func (r *Reconciler[T, NS]) propagateSecrets(ctx context.Context, obj NS, secret
 			newSecret.Labels = removePackageManagerKeys(secret.Labels, looplog)
 			newSecret.Immutable = secret.Immutable
 			newSecret.Data = secret.Data
-			newSecret.StringData = secret.StringData
 			newSecret.Type = secret.Type
 			return nil
 		})

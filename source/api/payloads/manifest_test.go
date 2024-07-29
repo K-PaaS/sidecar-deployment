@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
+	"gopkg.in/yaml.v3"
 )
 
 var _ = Describe("Manifest payload", func() {
@@ -43,7 +44,7 @@ var _ = Describe("Manifest payload", func() {
 				})
 
 				It("returns a validation error", func() {
-					expectUnprocessableEntityError(validateErr, "applications[0].memory must use a supported unit (B, K, KB, M, MB, G, GB, T, or TB)")
+					expectUnprocessableEntityError(validateErr, "applications[0].memory must use a supported unit (B, K, KB, M, m, MB, mb, G, g, GB, gb, T, t, TB or tb)")
 				})
 
 				When("there is more than one error", func() {
@@ -52,8 +53,8 @@ var _ = Describe("Manifest payload", func() {
 					})
 
 					It("returns both errors", func() {
-						expectUnprocessableEntityError(validateErr, "applications[0].disk_quota must use a supported unit (B, K, KB, M, MB, G, GB, T, or TB)")
-						expectUnprocessableEntityError(validateErr, "applications[0].memory must use a supported unit (B, K, KB, M, MB, G, GB, T, or TB)")
+						expectUnprocessableEntityError(validateErr, "applications[0].disk_quota must use a supported unit (B, K, KB, M, m, MB, mb, G, g, GB, gb, T, t, TB or tb)")
+						expectUnprocessableEntityError(validateErr, "applications[0].memory must use a supported unit (B, K, KB, M, m, MB, mb, G, g, GB, gb, T, t, TB or tb)")
 					})
 				})
 			})
@@ -108,7 +109,7 @@ var _ = Describe("Manifest payload", func() {
 				})
 
 				It("returns a validation error", func() {
-					expectUnprocessableEntityError(validateErr, "disk_quota must use a supported unit (B, K, KB, M, MB, G, GB, T, or TB)")
+					expectUnprocessableEntityError(validateErr, "disk_quota must use a supported unit (B, K, KB, M, m, MB, mb, G, g, GB, gb, T, t, TB or tb)")
 				})
 			})
 
@@ -128,7 +129,7 @@ var _ = Describe("Manifest payload", func() {
 				})
 
 				It("returns a validation error", func() {
-					expectUnprocessableEntityError(validateErr, "disk-quota must use a supported unit (B, K, KB, M, MB, G, GB, T, or TB)")
+					expectUnprocessableEntityError(validateErr, "disk-quota must use a supported unit (B, K, KB, M, m, MB, mb, G, g, GB, gb, T, t, TB or tb)")
 				})
 			})
 
@@ -189,7 +190,7 @@ var _ = Describe("Manifest payload", func() {
 				})
 
 				It("returns a validation error", func() {
-					expectUnprocessableEntityError(validateErr, "memory must use a supported unit (B, K, KB, M, MB, G, GB, T, or TB)")
+					expectUnprocessableEntityError(validateErr, "memory must use a supported unit (B, K, KB, M, m, MB, mb, G, g, GB, gb, T, t, TB or tb)")
 				})
 			})
 
@@ -421,7 +422,7 @@ var _ = Describe("Manifest payload", func() {
 				})
 
 				It("returns a validation error", func() {
-					expectUnprocessableEntityError(validateErr, "disk_quota must use a supported unit (B, K, KB, M, MB, G, GB, T, or TB)")
+					expectUnprocessableEntityError(validateErr, "disk_quota must use a supported unit (B, K, KB, M, m, MB, mb, G, g, GB, gb, T, t, TB or tb)")
 				})
 			})
 
@@ -441,7 +442,7 @@ var _ = Describe("Manifest payload", func() {
 				})
 
 				It("returns a validation error", func() {
-					expectUnprocessableEntityError(validateErr, "disk-quota must use a supported unit (B, K, KB, M, MB, G, GB, T, or TB)")
+					expectUnprocessableEntityError(validateErr, "disk-quota must use a supported unit (B, K, KB, M, m, MB, mb, G, g, GB, gb, T, t, TB or tb)")
 				})
 			})
 
@@ -502,7 +503,7 @@ var _ = Describe("Manifest payload", func() {
 				})
 
 				It("returns a validation error", func() {
-					expectUnprocessableEntityError(validateErr, "memory must use a supported unit (B, K, KB, M, MB, G, GB, T, or TB)")
+					expectUnprocessableEntityError(validateErr, "memory must use a supported unit (B, K, KB, M, m, MB, mb, G, g, GB, gb, T, t, TB or tb)")
 				})
 			})
 
@@ -739,33 +740,82 @@ var _ = Describe("Manifest payload", func() {
 		})
 	})
 
-	Describe("ManifestApplicationServices", func() {
-		var (
-			validateErr          error
-			testManifestServices ManifestApplicationService
-		)
+	Describe("ManifestApplicationService", func() {
+		Describe("Unmarshall", func() {
+			var (
+				unmarshalErr        error
+				serviceString       string
+				unmarshalledService ManifestApplicationService
+			)
 
-		BeforeEach(func() {
-			testManifestServices = ManifestApplicationService{
-				Name: "my-service",
-			}
-		})
-
-		JustBeforeEach(func() {
-			validateErr = validator.DecodeAndValidateYAMLPayload(createYAMLRequest(testManifestServices), &ManifestApplicationService{})
-		})
-
-		It("validates the struct", func() {
-			Expect(validateErr).NotTo(HaveOccurred())
-		})
-
-		When("name is not specified", func() {
 			BeforeEach(func() {
-				testManifestServices.Name = ""
+				serviceString = "name: my-svc"
+				unmarshalledService = ManifestApplicationService{}
 			})
 
-			It("returns a validation error", func() {
-				expectUnprocessableEntityError(validateErr, "name cannot be blank")
+			JustBeforeEach(func() {
+				unmarshalErr = yaml.Unmarshal([]byte(serviceString), &unmarshalledService)
+			})
+
+			It("succeeds", func() {
+				Expect(unmarshalErr).NotTo(HaveOccurred())
+				Expect(unmarshalledService).To(Equal(ManifestApplicationService{
+					Name: "my-svc",
+				}))
+			})
+
+			When("the name tag is missing", func() {
+				BeforeEach(func() {
+					serviceString = "my-svc"
+				})
+
+				It("succeeds", func() {
+					Expect(unmarshalErr).NotTo(HaveOccurred())
+					Expect(unmarshalledService).To(Equal(ManifestApplicationService{
+						Name: "my-svc",
+					}))
+				})
+
+				When("the value is not a string", func() {
+					BeforeEach(func() {
+						serviceString = "123"
+					})
+
+					It("errors", func() {
+						Expect(unmarshalErr).To(MatchError(ContainSubstring("invalid service")))
+					})
+				})
+			})
+		})
+
+		Describe("Validate", func() {
+			var (
+				validateErr          error
+				testManifestServices ManifestApplicationService
+			)
+
+			BeforeEach(func() {
+				testManifestServices = ManifestApplicationService{
+					Name: "my-service",
+				}
+			})
+
+			JustBeforeEach(func() {
+				validateErr = validator.DecodeAndValidateYAMLPayload(createYAMLRequest(testManifestServices), &ManifestApplicationService{})
+			})
+
+			It("validates the struct", func() {
+				Expect(validateErr).NotTo(HaveOccurred())
+			})
+
+			When("name is not specified", func() {
+				BeforeEach(func() {
+					testManifestServices.Name = ""
+				})
+
+				It("returns a validation error", func() {
+					expectUnprocessableEntityError(validateErr, "name cannot be blank")
+				})
 			})
 		})
 	})

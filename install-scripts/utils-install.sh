@@ -38,7 +38,7 @@ yq --version
 echo "------------------"
 echo "cert-manager cli install"
 echo "------------------"
-curl -L -o cmctl.tar.gz https://github.com/cert-manager/cert-manager/releases/latest/download/cmctl-$OS-$architecture.tar.gz
+curl -L -o cmctl.tar.gz https://github.com/cert-manager/cert-manager/releases/download/v1.14.7/cmctl-$OS-$architecture.tar.gz
 tar xzf cmctl.tar.gz
 rm cmctl.tar.gz LICENSE
 sudo mv cmctl /usr/local/bin

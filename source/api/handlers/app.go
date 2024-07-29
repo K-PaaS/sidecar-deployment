@@ -27,6 +27,7 @@ const (
 	AppCurrentDropletPath             = "/v3/apps/{guid}/droplets/current"
 	AppProcessesPath                  = "/v3/apps/{guid}/processes"
 	AppProcessByTypePath              = "/v3/apps/{guid}/processes/{type}"
+	AppProcessStatsByTypePath         = "/v3/apps/{guid}/processes/{type}/stats"
 	AppProcessScalePath               = "/v3/apps/{guid}/processes/{processType}/actions/scale"
 	AppRoutesPath                     = "/v3/apps/{guid}/routes"
 	AppStartPath                      = "/v3/apps/{guid}/actions/start"
@@ -34,6 +35,7 @@ const (
 	AppRestartPath                    = "/v3/apps/{guid}/actions/restart"
 	AppEnvVarsPath                    = "/v3/apps/{guid}/environment_variables"
 	AppEnvPath                        = "/v3/apps/{guid}/env"
+	AppFeaturePath                    = "/v3/apps/{guid}/features/{name}"
 	AppPackagesPath                   = "/v3/apps/{guid}/packages"
 	AppSSHEnabledPath                 = "/v3/apps/{guid}/ssh_enabled"
 	invalidDropletMsg                 = "Unable to assign current droplet. Ensure the droplet exists and belongs to this app."
@@ -61,6 +63,7 @@ type App struct {
 	appRepo          CFAppRepository
 	dropletRepo      CFDropletRepository
 	processRepo      CFProcessRepository
+	processStats     ProcessStats
 	routeRepo        CFRouteRepository
 	domainRepo       CFDomainRepository
 	spaceRepo        CFSpaceRepository
@@ -73,6 +76,7 @@ func NewApp(
 	appRepo CFAppRepository,
 	dropletRepo CFDropletRepository,
 	processRepo CFProcessRepository,
+	processStatsFetcher ProcessStats,
 	routeRepo CFRouteRepository,
 	domainRepo CFDomainRepository,
 	spaceRepo CFSpaceRepository,
@@ -84,6 +88,7 @@ func NewApp(
 		appRepo:          appRepo,
 		dropletRepo:      dropletRepo,
 		processRepo:      processRepo,
+		processStats:     processStatsFetcher,
 		routeRepo:        routeRepo,
 		domainRepo:       domainRepo,
 		spaceRepo:        spaceRepo,
@@ -553,6 +558,32 @@ func (h *App) getProcess(r *http.Request) (*routing.Response, error) {
 	return routing.NewResponse(http.StatusOK).WithBody(presenter.ForProcess(process, h.serverURL)), nil
 }
 
+func (h *App) getProcessStats(r *http.Request) (*routing.Response, error) {
+	authInfo, _ := authorization.InfoFromContext(r.Context())
+	logger := logr.FromContextOrDiscard(r.Context()).WithName("handlers.app.get-process-stats")
+	appGUID := routing.URLParam(r, "guid")
+	processType := routing.URLParam(r, "type")
+
+	app, err := h.appRepo.GetApp(r.Context(), authInfo, appGUID)
+	if err != nil {
+		return nil, apierrors.LogAndReturn(logger, apierrors.ForbiddenAsNotFound(err), "Failed to fetch app from Kubernetes", "AppGUID", appGUID)
+	}
+
+	process, err := h.processRepo.GetProcessByAppTypeAndSpace(r.Context(), authInfo, appGUID, processType, app.SpaceGUID)
+	if err != nil {
+		return nil, apierrors.LogAndReturn(logger, err, "Failed to fetch process from Kubernetes", "AppGUID", appGUID)
+	}
+
+	processGUID := process.GUID
+
+	records, err := h.processStats.FetchStats(r.Context(), authInfo, processGUID)
+	if err != nil {
+		return nil, apierrors.LogAndReturn(logger, apierrors.ForbiddenAsNotFound(err), "Failed to get process stats from Kubernetes", "ProcessGUID", processGUID)
+	}
+
+	return routing.NewResponse(http.StatusOK).WithBody(presenter.ForProcessStats(records)), nil
+}
+
 func (h *App) getPackages(r *http.Request) (*routing.Response, error) {
 	authInfo, _ := authorization.InfoFromContext(r.Context())
 	logger := logr.FromContextOrDiscard(r.Context()).WithName("handlers.app.get-packages")
@@ -606,6 +637,26 @@ func (h *App) getSSHEnabled(r *http.Request) (*routing.Response, error) {
 	}), nil
 }
 
+func (h *App) getAppFeature(r *http.Request) (*routing.Response, error) {
+	featureName := routing.URLParam(r, "name")
+	switch featureName {
+	case "ssh":
+		return routing.NewResponse(http.StatusOK).WithBody(map[string]any{
+			"name":        "ssh",
+			"description": "Enable SSHing into the app.",
+			"enabled":     false,
+		}), nil
+	case "revisions":
+		return routing.NewResponse(http.StatusOK).WithBody(map[string]any{
+			"name":        "revisions",
+			"description": "Enable versioning of an application",
+			"enabled":     false,
+		}), nil
+	default:
+		return nil, apierrors.NewNotFoundError(nil, "Feature")
+	}
+}
+
 func (h *App) UnauthenticatedRoutes() []routing.Route {
 	return nil
 }
@@ -623,11 +674,13 @@ func (h *App) AuthenticatedRoutes() []routing.Route {
 		{Method: "POST", Pattern: AppProcessScalePath, Handler: h.scaleProcess},
 		{Method: "GET", Pattern: AppProcessesPath, Handler: h.getProcesses},
 		{Method: "GET", Pattern: AppProcessByTypePath, Handler: h.getProcess},
+		{Method: "GET", Pattern: AppProcessStatsByTypePath, Handler: h.getProcessStats},
 		{Method: "GET", Pattern: AppRoutesPath, Handler: h.getRoutes},
 		{Method: "DELETE", Pattern: AppPath, Handler: h.delete},
 		{Method: "PATCH", Pattern: AppEnvVarsPath, Handler: h.updateEnvVars},
 		{Method: "GET", Pattern: AppEnvPath, Handler: h.getEnvironment},
 		{Method: "GET", Pattern: AppPackagesPath, Handler: h.getPackages},
+		{Method: "GET", Pattern: AppFeaturePath, Handler: h.getAppFeature},
 		{Method: "PATCH", Pattern: AppPath, Handler: h.update},
 		{Method: "GET", Pattern: AppSSHEnabledPath, Handler: h.getSSHEnabled},
 	}

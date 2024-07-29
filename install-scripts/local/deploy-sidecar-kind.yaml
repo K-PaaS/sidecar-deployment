@@ -59,8 +59,8 @@ metadata:
         - git:
             dirty: true
             remoteURL: https://github.com/cloudfoundry/korifi.git
-            sha: 5a2928196185c469057e68184d3dc487d5af96c1
-        url: index.docker.io/cloudfoundry/korifi-installer@sha256:9a53220e7a1d1b8ee8d2c22cb386a7cf0fa7c8dacdb5ba110ca8409a7a1ed82d
+            sha: 12840400bcf6f6d1f65ec3ef18c4d36dd4a19b29
+        url: index.docker.io/cloudfoundry/korifi-installer@sha256:59b86548500efdacac1869df76f377ac37e824d34616d23fe1846f888705ce6a
   name: install-sidecar
   namespace: sidecar-installer
 spec:
@@ -73,8 +73,9 @@ spec:
         - bash
         - -c
         - |
+          set -euo pipefail
+
           scripts/install-dependencies.sh --insecure-tls-metrics-server
-          kubectl rollout status deployment metrics-server -n kube-system --timeout=2m
 
           helm repo add twuni https://helm.twun.io
           # the htpasswd value below is username: user, password: password encoded using `htpasswd` binary
@@ -110,11 +111,40 @@ spec:
             --set=kpackImageBuilder.clusterStackBuildImage="paketobuildpacks/build-jammy-base" \
             --set=kpackImageBuilder.clusterStackRunImage="paketobuildpacks/run-jammy-base" \
             --set=kpackImageBuilder.builderRepository="localregistry-docker-registry.default.svc.cluster.local:30050/kpack-builder" \
+            --set=networking.gatewayClass="contour" \
             --wait
 
           kubectl wait --for=condition=ready clusterbuilder --all=true --timeout=15m
-        image: index.docker.io/cloudfoundry/korifi-installer@sha256:9a53220e7a1d1b8ee8d2c22cb386a7cf0fa7c8dacdb5ba110ca8409a7a1ed82d
+
+          kubectl -n sidecar-gateway patch gateway korifi --type='json' -p='[{"op": "replace", "path": "/spec/listeners/0/port", "value":32080}]'
+          kubectl -n sidecar-gateway patch gateway korifi --type='json' -p='[{"op": "replace", "path": "/spec/listeners/1/port", "value":32443}]'
+          kubectl -n sidecar-gateway patch gateway korifi --type='json' -p='[{"op": "replace", "path": "/spec/listeners/2/port", "value":32443}]'
+
+          kubectl apply -f - <<EOF
+          kind: GatewayClass
+          apiVersion: gateway.networking.k8s.io/v1beta1
+          metadata:
+            name: contour
+          spec:
+            controllerName: projectcontour.io/gateway-controller
+            parametersRef:
+              kind: ContourDeployment
+              group: projectcontour.io
+              name: contour-nodeport-params
+              namespace: projectcontour
+
+          ---
+          kind: ContourDeployment
+          apiVersion: projectcontour.io/v1alpha1
+          metadata:
+            namespace: projectcontour
+            name: contour-nodeport-params
+          spec:
+            envoy:
+              networkPublishing:
+                type: NodePortService
+          EOF
+        image: index.docker.io/cloudfoundry/korifi-installer@sha256:59b86548500efdacac1869df76f377ac37e824d34616d23fe1846f888705ce6a
         name: install-sidecar
       restartPolicy: Never
       serviceAccountName: sidecar-installer
-

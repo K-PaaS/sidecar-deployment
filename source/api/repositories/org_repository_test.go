@@ -8,8 +8,8 @@ import (
 	"code.cloudfoundry.org/korifi/api/authorization"
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	"code.cloudfoundry.org/korifi/api/repositories"
+	"code.cloudfoundry.org/korifi/api/repositories/fakeawaiter"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
-	"code.cloudfoundry.org/korifi/controllers/controllers/shared"
 	"code.cloudfoundry.org/korifi/tests/matchers"
 	"code.cloudfoundry.org/korifi/tools"
 	"code.cloudfoundry.org/korifi/tools/k8s"
@@ -25,7 +25,7 @@ import (
 
 var _ = Describe("OrgRepository", func() {
 	var (
-		conditionAwaiter *FakeAwaiter[
+		conditionAwaiter *fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFOrg,
 			korifiv1alpha1.CFOrgList,
 			*korifiv1alpha1.CFOrgList,
@@ -34,7 +34,7 @@ var _ = Describe("OrgRepository", func() {
 	)
 
 	BeforeEach(func() {
-		conditionAwaiter = &FakeAwaiter[
+		conditionAwaiter = &fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFOrg,
 			korifiv1alpha1.CFOrgList,
 			*korifiv1alpha1.CFOrgList,
@@ -67,7 +67,7 @@ var _ = Describe("OrgRepository", func() {
 				Expect(k8s.Patch(ctx, k8sClient, cfOrg, func() {
 					cfOrg.Status.GUID = cfOrg.Name
 					meta.SetStatusCondition(&cfOrg.Status.Conditions, metav1.Condition{
-						Type:    "Ready",
+						Type:    korifiv1alpha1.StatusConditionReady,
 						Status:  conditionStatus,
 						Reason:  "blah",
 						Message: conditionMessage,
@@ -136,7 +136,7 @@ var _ = Describe("OrgRepository", func() {
 				obj, conditionType := conditionAwaiter.AwaitConditionArgsForCall(0)
 				Expect(obj.GetName()).To(Equal(cfOrg.Name))
 				Expect(obj.GetNamespace()).To(Equal(rootNamespace))
-				Expect(conditionType).To(Equal(shared.StatusConditionReady))
+				Expect(conditionType).To(Equal(korifiv1alpha1.StatusConditionReady))
 			})
 
 			When("the org does not become ready", func() {
@@ -199,7 +199,7 @@ var _ = Describe("OrgRepository", func() {
 		When("the org is not ready", func() {
 			BeforeEach(func() {
 				meta.SetStatusCondition(&(cfOrg1.Status.Conditions), metav1.Condition{
-					Type:    "Ready",
+					Type:    korifiv1alpha1.StatusConditionReady,
 					Status:  metav1.ConditionFalse,
 					Reason:  "because",
 					Message: "because",
@@ -207,7 +207,7 @@ var _ = Describe("OrgRepository", func() {
 				Expect(k8sClient.Status().Update(ctx, cfOrg1)).To(Succeed())
 
 				meta.SetStatusCondition(&(cfOrg2.Status.Conditions), metav1.Condition{
-					Type:    "Ready",
+					Type:    korifiv1alpha1.StatusConditionReady,
 					Status:  metav1.ConditionUnknown,
 					Reason:  "because",
 					Message: "because",

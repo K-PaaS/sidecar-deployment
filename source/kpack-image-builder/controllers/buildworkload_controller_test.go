@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
-	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/testutils"
 	"code.cloudfoundry.org/korifi/kpack-image-builder/controllers"
 	"code.cloudfoundry.org/korifi/tests/helpers"
 	"code.cloudfoundry.org/korifi/tools/image"
@@ -767,14 +766,11 @@ var _ = Describe("BuildWorkloadReconciler", func() {
 			BeforeEach(func() {
 				Consistently(func(g Gomega) {
 					g.Expect(adminClient.Get(ctx, client.ObjectKeyFromObject(buildWorkload), buildWorkload)).To(Succeed())
-					g.Expect(meta.FindStatusCondition(buildWorkload.Status.Conditions, korifiv1alpha1.SucceededConditionType)).To(
-						SatisfyAny(
-							BeNil(),
-							PointTo(MatchFields(
-								IgnoreExtras,
-								Fields{"Status": Equal(metav1.ConditionUnknown)},
-							)),
-						),
+					g.Expect(meta.FindStatusCondition(buildWorkload.Status.Conditions, korifiv1alpha1.SucceededConditionType)).NotTo(
+						PointTo(MatchFields(
+							IgnoreExtras,
+							Fields{"Status": Equal(metav1.ConditionTrue)},
+						)),
 					)
 				}, "2s").Should(Succeed())
 
@@ -818,6 +814,50 @@ var _ = Describe("BuildWorkloadReconciler", func() {
 		})
 	})
 
+	When("the cluster builder readiness is not set", func() {
+		BeforeEach(func() {
+			Expect(k8s.Patch(ctx, adminClient, clusterBuilder, func() {
+				clusterBuilder.Status.Conditions = corev1alpha1.Conditions{}
+			})).To(Succeed())
+
+			buildWorkload = buildWorkloadObject(buildWorkloadGUID, namespaceGUID, source, env, services, reconcilerName, buildpacks)
+			Expect(adminClient.Create(ctx, buildWorkload)).To(Succeed())
+		})
+
+		It("sets the Succeeded condition to False", func() {
+			Eventually(func(g Gomega) {
+				g.Expect(adminClient.Get(ctx, client.ObjectKeyFromObject(buildWorkload), buildWorkload)).To(Succeed())
+				g.Expect(mustHaveCondition(g, buildWorkload.Status.Conditions, "Succeeded").Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(mustHaveCondition(g, buildWorkload.Status.Conditions, "Succeeded").Reason).To(Equal("BuilderNotReady"))
+			}).Should(Succeed())
+		})
+	})
+
+	When("the cluster builder readiness is unknown", func() {
+		BeforeEach(func() {
+			Expect(k8s.Patch(ctx, adminClient, clusterBuilder, func() {
+				clusterBuilder.Status.Conditions = corev1alpha1.Conditions{
+					{
+						Type:               corev1alpha1.ConditionType("Ready"),
+						Status:             corev1.ConditionStatus(metav1.ConditionUnknown),
+						LastTransitionTime: corev1alpha1.VolatileTime{Inner: metav1.Now()},
+					},
+				}
+			})).To(Succeed())
+
+			buildWorkload = buildWorkloadObject(buildWorkloadGUID, namespaceGUID, source, env, services, reconcilerName, buildpacks)
+			Expect(adminClient.Create(ctx, buildWorkload)).To(Succeed())
+		})
+
+		It("sets the Succeeded condition to False", func() {
+			Eventually(func(g Gomega) {
+				g.Expect(adminClient.Get(ctx, client.ObjectKeyFromObject(buildWorkload), buildWorkload)).To(Succeed())
+				g.Expect(mustHaveCondition(g, buildWorkload.Status.Conditions, "Succeeded").Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(mustHaveCondition(g, buildWorkload.Status.Conditions, "Succeeded").Reason).To(Equal("BuilderNotReady"))
+			}).Should(Succeed())
+		})
+	})
+
 	When("multiple BuildWorkloads exist for the same app", func() {
 		var buildWorkload2 *korifiv1alpha1.BuildWorkload
 
@@ -831,7 +871,7 @@ var _ = Describe("BuildWorkloadReconciler", func() {
 
 			source2 := source
 			source2.Registry.Image += "2"
-			buildWorkload2 = buildWorkloadObject(testutils.GenerateGUID(), namespaceGUID, source2, env, services, reconcilerName, buildpacks)
+			buildWorkload2 = buildWorkloadObject(uuid.NewString(), namespaceGUID, source2, env, services, reconcilerName, buildpacks)
 			Expect(adminClient.Create(ctx, buildWorkload2)).To(Succeed())
 			Eventually(func(g Gomega) {
 				g.Expect(adminClient.Get(ctx, client.ObjectKeyFromObject(buildWorkload2), buildWorkload2)).To(Succeed())
@@ -865,7 +905,7 @@ var _ = Describe("BuildWorkloadReconciler", func() {
 			BeforeEach(func() {
 				Expect(adminClient.Create(ctx, &buildv1alpha2.Build{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      testutils.GenerateGUID(),
+						Name:      uuid.NewString(),
 						Namespace: namespaceGUID,
 						Labels: map[string]string{
 							buildv1alpha2.ImageLabel:           appGUID,
@@ -913,7 +953,7 @@ var _ = Describe("BuildWorkloadReconciler", func() {
 			BeforeEach(func() {
 				source3 := source
 				source3.Registry.Image += "3"
-				buildWorkload3 = buildWorkloadObject(testutils.GenerateGUID(), namespaceGUID, source3, env, services, reconcilerName, buildpacks)
+				buildWorkload3 = buildWorkloadObject(uuid.NewString(), namespaceGUID, source3, env, services, reconcilerName, buildpacks)
 				Expect(adminClient.Create(ctx, buildWorkload3)).To(Succeed())
 				Eventually(func(g Gomega) {
 					g.Expect(adminClient.Get(ctx, client.ObjectKeyFromObject(buildWorkload3), buildWorkload3)).To(Succeed())
@@ -947,7 +987,7 @@ var _ = Describe("BuildWorkloadReconciler", func() {
 				g.Expect(buildWorkload.Labels).To(HaveKey(controllers.ImageGenerationKey))
 			}).Should(Succeed())
 
-			buildWorkload2 = buildWorkloadObject(testutils.GenerateGUID(), namespaceGUID, source, env, services, reconcilerName, buildpacks)
+			buildWorkload2 = buildWorkloadObject(uuid.NewString(), namespaceGUID, source, env, services, reconcilerName, buildpacks)
 			Expect(adminClient.Create(ctx, buildWorkload2)).To(Succeed())
 			Eventually(func(g Gomega) {
 				g.Expect(adminClient.Get(ctx, client.ObjectKeyFromObject(buildWorkload2), buildWorkload2)).To(Succeed())
@@ -1091,7 +1131,7 @@ var _ = Describe("BuildWorkloadReconciler", func() {
 
 		When("there is another BuildWorkload referring to the kpack.Build", func() {
 			BeforeEach(func() {
-				otherBuildWorkload := buildWorkloadObject(testutils.GenerateGUID(), namespaceGUID, source, env, services, reconcilerName, buildpacks)
+				otherBuildWorkload := buildWorkloadObject(uuid.NewString(), namespaceGUID, source, env, services, reconcilerName, buildpacks)
 				otherBuildWorkload.Labels[controllers.ImageGenerationKey] = "1"
 				Expect(adminClient.Create(ctx, otherBuildWorkload)).To(Succeed())
 			})

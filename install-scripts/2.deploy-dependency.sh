@@ -13,31 +13,19 @@ kubectl -n cert-manager rollout status deployment/cert-manager-cainjector --watc
 cmctl check api --wait=2m
 
 ## contour
-if [[ ${use_lb} == true ]]; then
-	yq e --inplace '.spec.type="LoadBalancer"' ../dependency/contour/02-service-envoy.yaml
-	if [[ -z ${lb_ip}  ]]; then
-                yq e --inplace 'del(.spec.loadBalancerIP)' ../dependency/contour/02-service-envoy.yaml
-        elif [[ -n ${lb_ip} ]]; then
-                lb_ip="${lb_ip}" yq e --inplace '.spec.loadBalancerIP = env(lb_ip)' ../dependency/contour/02-service-envoy.yaml
-        fi
-elif [[ ${use_lb} == false ]]; then
-	yq e --inplace '.spec.type="NodePort"' ../dependency/contour/02-service-envoy.yaml
-	yq e --inplace 'del(.spec.loadBalancerIP)' ../dependency/contour/02-service-envoy.yaml
-else
-  echo "plz check variable use_lb"
-  return
-fi
-kubectl apply -f ../dependency/contour/
+kubectl apply -f ../dependency/contour/contour-gateway-provisioner.yaml
+
+gateway_name="${sidecar_namespace}-gateway" yq e  '(select(.kind == "GatewayClass")| .metadata.name = env(gateway_name))' ../dependency/contour/gateway-class.yaml | kubectl apply -f -
 
 ## kpack
-kubectl apply -f ../dependency/kpack/release-0.12.2.yaml
+kubectl apply -f ../dependency/kpack/
 
 if [[ ${use_dockerhub} = true ]]; then
 	echo "" > /dev/null
 elif [[ ${use_dockerhub} = false ]]; then
 	if [[ ${is_self_signed_certificate} == true ]]; then
 		echo "is_self_signed_certificate true"
-		cert_secret_name="${cert_secret_name}" yq e  '(select(.kind == "Deployment" and .metadata.name =="kpack-controller" )| .spec.template.spec += {"volumes": [{"name": "korifi-registry-ca-cert", "secret": {"defaultMode": 420, "secretName": env(cert_secret_name)}}] })' ../dependency/kpack/release-0.12.2.yaml | yq e  '(select(.kind == "Deployment" and .metadata.name =="kpack-controller" )| .spec.template.spec.containers[0] += {"volumeMounts": [{"mountPath": "/etc/ssl/certs/registry-ca.crt", "name": "korifi-registry-ca-cert", "readOnly": true, "subPath": "ca.crt"}]})' | kubectl apply -f -
+		cert_secret_name="${cert_secret_name}" yq e  '(select(.kind == "Deployment" and .metadata.name =="kpack-controller" )| .spec.template.spec += {"volumes": [{"name": "korifi-registry-ca-cert", "secret": {"defaultMode": 420, "secretName": env(cert_secret_name)}}] })' ../dependency/kpack/release-0.13.4.yaml | yq e  '(select(.kind == "Deployment" and .metadata.name =="kpack-controller" )| .spec.template.spec.containers[0] += {"volumeMounts": [{"mountPath": "/etc/ssl/certs/registry-ca.crt", "name": "korifi-registry-ca-cert", "readOnly": true, "subPath": "ca.crt"}]})' | kubectl apply -f -
 		## private_registry ca secret (option)
 		### kpack ca secret
 		kubectl --namespace kpack create secret generic $cert_secret_name \
