@@ -2,6 +2,12 @@
 
 source ../../variables.yml
 
+randomGuidGenerate(){
+	randomGuid=$(tr -dc a-f0-9 </dev/urandom | head -c 8 )-$(tr -dc a-f0-9 </dev/urandom | head -c 4 )-$(tr -dc a-f0-9 </dev/urandom | head -c 4 )-$(tr -dc a-f0-9 </dev/urandom | head -c 4 )-$(tr -dc a-f0-9 </dev/urandom | head -c 12 )     
+	echo ${randomGuid}
+}
+
+
 main() {
   if [[ $# -ne 4 ]]; then
     cat <<EOF >&2
@@ -34,11 +40,11 @@ EOF
   fi
 
   rolebinding_name="${real_org_name}-${username}" yq e '.metadata.name = env(rolebinding_name)' rolebinding-template/rolebinding-sa-orguser.yaml | real_org_name="${real_org_name}" yq e '.metadata.namespace = env(real_org_name)' |
-username="${username}" yq e '.subjects[0].name = env(username)' | sa_namespace="${sa_namespace}" yq e '.subjects[0].namespace = env(sa_namespace)' | kubectl apply -f -
+username="${username}" yq e '.subjects[0].name = env(username)' | sa_namespace="${sa_namespace}" yq e '.subjects[0].namespace = env(sa_namespace)' | randomGuid=$(randomGuidGenerate) yq e '.metadata.labels."cloudfoundry.org/role-guid" = env(randomGuid)' | kubectl apply -f -
 
-  rolebinding_name="${real_space_name}-${username}" yq e '.metadata.name = env(rolebinding_name)' rolebinding-template/rolebinding-sa-spacedeveloper.yaml |  real_space_name="${real_space_name}" yq e '.metadata.namespace = env(real_space_name)' | username="${username}" yq e '.subjects[0].name = env(username)' | sa_namespace="${sa_namespace}" yq e '.subjects[0].namespace = env(sa_namespace)' | kubectl apply -f -
+  rolebinding_name="${real_space_name}-${username}" yq e '.metadata.name = env(rolebinding_name)' rolebinding-template/rolebinding-sa-spacedeveloper.yaml |  real_space_name="${real_space_name}" yq e '.metadata.namespace = env(real_space_name)' | username="${username}" yq e '.subjects[0].name = env(username)' | sa_namespace="${sa_namespace}" yq e '.subjects[0].namespace = env(sa_namespace)' | randomGuid=$(randomGuidGenerate) yq e '.metadata.labels."cloudfoundry.org/role-guid" = env(randomGuid)' | kubectl apply -f -
 
-  rolebinding_name="sidecar-root-namespace-user-${sa_namespace}-${username}" yq e '.metadata.name = env(rolebinding_name)' rolebinding-template/rolebinding-root-namespace-user.yaml |  root_namespace="${root_namespace}" yq e '.metadata.namespace = env(root_namespace)' | username="${username}" yq e '.subjects[0].name = env(username)' | sa_namespace="${sa_namespace}" yq e '.subjects[0].namespace = env(sa_namespace)' | kubectl apply -f -
+  rolebinding_name="sidecar-root-namespace-user-${sa_namespace}-${username}" yq e '.metadata.name = env(rolebinding_name)' rolebinding-template/rolebinding-root-namespace-user.yaml |  root_namespace="${root_namespace}" yq e '.metadata.namespace = env(root_namespace)' | username="${username}" yq e '.subjects[0].name = env(username)' | sa_namespace="${sa_namespace}" yq e '.subjects[0].namespace = env(sa_namespace)' | randomGuid=$(randomGuidGenerate) yq e '.metadata.labels."cloudfoundry.org/role-guid" = env(randomGuid)' | kubectl apply -f -
 
 }
 
