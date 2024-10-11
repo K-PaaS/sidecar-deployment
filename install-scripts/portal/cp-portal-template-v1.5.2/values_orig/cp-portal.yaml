@@ -1,0 +1,63 @@
+# Default values for container platform portal.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+global:
+  name: cp-portal
+  namespace: {NAMESPACE}
+  image:
+    repository: {REPOSITORY_HOST}/{REPOSITORY_PROJECT_NAME}
+    tag: {IMAGE_TAGS}
+    pullPolicy: {IMAGE_PULL_POLICY}
+    pullSecrets: {IMAGE_PULL_SECRET}
+  expose:
+    type: {SERVICE_TYPE}
+    protocol: {SERVICE_PROTOCOL}
+  probe:
+    liveness:
+      path: /actuator/health/liveness
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      failureThreshold: 3
+    readiness:
+      path: /actuator/health/readiness
+      initialDelaySeconds: 20
+      periodSeconds: 10
+      failureThreshold: 3
+
+apps:
+  - name: cp-portal-common-api
+    replicas: 1
+    expose:
+      port: 3334
+      targetPort: 3334
+  - name: cp-portal-metric-api
+    replicas: 1
+    expose:
+      port: 8900
+      targetPort: 8900
+
+configmap:
+  data:
+    K8S_MASTER_NODE_IP: {K8S_MASTER_NODE_IP}
+    KEYCLOAK_URI: {KEYCLOAK_URL}
+    KEYCLOAK_DB_SCHEMA: {KEYCLOAK_DB_SCHEMA}
+    KEYCLOAK_ADMIN_USERNAME: {KEYCLOAK_ADMIN_USERNAME}
+    KEYCLOAK_ADMIN_PASSWORD: {KEYCLOAK_ADMIN_PASSWORD}
+    KEYCLOAK_CP_REALM: {KEYCLOAK_CP_REALM}
+    KEYCLOAK_CP_CLIENT_ID: {KEYCLOAK_CP_CLIENT_ID}
+    KEYCLOAK_CP_CLIENT_SECRET: {KEYCLOAK_CP_CLIENT_SECRET}
+    REPOSITORY_URL: {REPOSITORY_URL}
+    DATABASE_URL: {DATABASE_URL}
+    DATABASE_USER_ID: {DATABASE_USER_ID}
+    DATABASE_USER_PASSWORD: {DATABASE_USER_PASSWORD}
+    DATABASE_TERRAMAN_ID: {DATABASE_TERRAMAN_ID}
+    DATABASE_TERRAMAN_PASSWORD: {DATABASE_TERRAMAN_PASSWORD}
+    VAULT_URL: {VAULT_URL}
+    VAULT_ROLE_NAME: {VAULT_ROLE_NAME}
+    VAULT_ROLE_ID: {VAULT_ROLE_ID}
+    VAULT_SECRET_ID: {VAULT_SECRET_ID}
+    CP_PORTAL_UI_URI: {CP_PORTAL_URL}
+    CP_PORTAL_API_URI: {CP_PORTAL_URL}/cpapi
+    CP_PORTAL_COMMON_API_URI: http://cp-portal-common-api-service.{NAMESPACE}.svc.cluster.local:3334
+    CP_PORTAL_TERRAMAN_API_URI: http://cp-portal-terraman-service.{NAMESPACE}.svc.cluster.local:8091
+    CP_PORTAL_METRIC_COLLECTOR_API_URI: http://cp-portal-metric-api-service.{NAMESPACE}.svc.cluster.local:8900
