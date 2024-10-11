@@ -1,6 +1,5 @@
 # COMMON VARIABLE (Please change the value of the variables below.)
-K8S_MASTER_NODE_IP="${kubectl config view | yq e '.clusters[0].cluster.server' | cut -d '/' -f 3 | cut -d ':' -f 1
-}" 									  # Kubernetes Master Node Public IP
+K8S_MASTER_NODE_IP="${kubectl config view | yq e '.clusters[0].cluster.server' | cut -d '/' -f 3 | cut -d ':' -f 1}" 									  # Kubernetes Master Node Public IP
 K8S_CLUSTER_API_SERVER="https://${K8S_MASTER_NODE_IP}:6443"               # kubernetes API Server (e.g. https://${K8S_MASTER_NODE_IP}:6443)
 K8S_STORAGECLASS="cp-storageclass"                                        # Kubernetes StorageClass Name (e.g. cp-storageclass)
 HOST_CLUSTER_IAAS_TYPE="1"                                                # Kubernetes Cluster IaaS Type ([1] AWS, [2] OPENSTACK, [3] NAVER, [4] NHN, [5] KT)

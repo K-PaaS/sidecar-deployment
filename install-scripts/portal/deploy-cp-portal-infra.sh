@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #VARIABLES
-INGRESS_HOST_DOMAIN="{host domain}"  		# Host Domain (e.g. xx.xxx.xxx.xx.nip.io)
+INGRESS_HOST_DOMAIN="{host domain}"		# Host Domain (e.g. xx.xxx.xxx.xx.nip.io)
 
 CP_PORTAL_VERSION=v1.5.2
 
@@ -18,7 +18,8 @@ cp cp-portal-template-$CP_PORTAL_VERSION/values_orig/cp-portal.yaml cp-portal-de
 
 # 3. HOST_DOMAIN INPUT
 
-sed -i -e 's/INGRESS_HOST_DOMAIN/'${INGRESS_HOST_DOMAIN}'/g' cp-portal-deployment/script/cp-portal-vars.sh
+sed -i 's/INGRESS_HOST_DOMAIN/'${INGRESS_HOST_DOMAIN}'/g' cp-portal-deployment/script/cp-portal-vars.sh
+
 
 # 4. deploy
 cd cp-portal-deployment/script
