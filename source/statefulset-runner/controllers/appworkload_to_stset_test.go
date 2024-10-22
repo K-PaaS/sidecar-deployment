@@ -19,10 +19,9 @@ import (
 
 var _ = Describe("AppWorkload to StatefulSet Converter", func() {
 	var (
-		statefulSet                                    *appsv1.StatefulSet
-		appWorkload                                    *korifiv1alpha1.AppWorkload
-		converter                                      *controllers.AppWorkloadToStatefulsetConverter
-		statefulsetRunnerTemporarySetPodSeccompProfile bool
+		statefulSet *appsv1.StatefulSet
+		appWorkload *korifiv1alpha1.AppWorkload
+		converter   *controllers.AppWorkloadToStatefulsetConverter
 	)
 
 	BeforeEach(func() {
@@ -85,15 +84,11 @@ var _ = Describe("AppWorkload to StatefulSet Converter", func() {
 			},
 		}
 
-		statefulsetRunnerTemporarySetPodSeccompProfile = false
+		converter = controllers.NewAppWorkloadToStatefulsetConverter(scheme.Scheme)
 	})
 
 	JustBeforeEach(func() {
 		var err error
-		converter = controllers.NewAppWorkloadToStatefulsetConverter(
-			scheme.Scheme,
-			statefulsetRunnerTemporarySetPodSeccompProfile,
-		)
 		statefulSet, err = converter.Convert(appWorkload)
 
 		Expect(err).NotTo(HaveOccurred())
@@ -235,11 +230,6 @@ var _ = Describe("AppWorkload to StatefulSet Converter", func() {
 		Expect(statefulSet.Spec.Template.Labels).To(HaveKeyWithValue(controllers.LabelVersion, "version_1234"))
 	})
 
-	It("should set statefulset-runner-index as a label", func() {
-		Expect(statefulSet.Labels).To(HaveKeyWithValue(controllers.LabelStatefulSetRunnerIndex, "true"))
-		Expect(statefulSet.Spec.Template.Labels).To(HaveKeyWithValue(controllers.LabelStatefulSetRunnerIndex, "true"))
-	})
-
 	It("should set guid as a label selector", func() {
 		Expect(statefulSet.Spec.Selector.MatchLabels).To(HaveKeyWithValue(controllers.LabelGUID, "guid_1234"))
 	})
@@ -275,21 +265,25 @@ var _ = Describe("AppWorkload to StatefulSet Converter", func() {
 		Expect(*statefulSet.Spec.Template.Spec.SecurityContext.RunAsNonRoot).To(BeTrue())
 	})
 
-	It("should set soft inter-pod anti-affinity", func() {
-		podAntiAffinity := statefulSet.Spec.Template.Spec.Affinity.PodAntiAffinity
-		Expect(podAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution).To(BeEmpty())
-		Expect(podAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution).To(HaveLen(1))
+	It("should set the seccomp profile on the pod", func() {
+		Expect(statefulSet.Spec.Template.Spec.SecurityContext.SeccompProfile).NotTo(BeNil())
+		Expect(*statefulSet.Spec.Template.Spec.SecurityContext.SeccompProfile).To(Equal(corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}))
+	})
 
-		weightedTerm := podAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
-		Expect(weightedTerm.Weight).To(Equal(int32(100)))
-		Expect(weightedTerm.PodAffinityTerm.TopologyKey).To(Equal("kubernetes.io/hostname"))
-		Expect(weightedTerm.PodAffinityTerm.LabelSelector.MatchExpressions).To(ConsistOf(
-			metav1.LabelSelectorRequirement{
-				Key:      controllers.LabelGUID,
-				Operator: metav1.LabelSelectorOpIn,
-				Values:   []string{"guid_1234"},
-			},
-		))
+	It("should set topology spread constraint", func() {
+		topologySpreadConstraints := statefulSet.Spec.Template.Spec.TopologySpreadConstraints
+		Expect(topologySpreadConstraints).To(HaveLen(2))
+		keys := []string{}
+
+		for _, constraint := range topologySpreadConstraints {
+			keys = append(keys, constraint.TopologyKey)
+			Expect(constraint.MaxSkew).To(BeEquivalentTo(1))
+			Expect(constraint.WhenUnsatisfiable).To(BeEquivalentTo("ScheduleAnyway"))
+			Expect(constraint.LabelSelector).To(Equal(statefulSet.Spec.Selector))
+			Expect(constraint.MatchLabelKeys).To(ConsistOf("pod-template-hash"))
+		}
+
+		Expect(keys).To(ConsistOf("topology.kubernetes.io/zone", "kubernetes.io/hostname"))
 	})
 
 	It("should set the container environment variables", func() {
@@ -337,6 +331,7 @@ var _ = Describe("AppWorkload to StatefulSet Converter", func() {
 			Expect(container.Env).To(ContainElements(
 				corev1.EnvVar{Name: controllers.EnvPodName, ValueFrom: expectedValFrom("metadata.name")},
 				corev1.EnvVar{Name: controllers.EnvCFInstanceGUID, ValueFrom: expectedValFrom("metadata.uid")},
+				corev1.EnvVar{Name: controllers.EnvCFInstanceIndex, ValueFrom: expectedValFrom("metadata.labels['apps.kubernetes.io/pod-index']")},
 				corev1.EnvVar{Name: controllers.EnvCFInstanceInternalIP, ValueFrom: expectedValFrom("status.podIP")},
 				corev1.EnvVar{Name: controllers.EnvCFInstanceIP, ValueFrom: expectedValFrom("status.hostIP")},
 				corev1.EnvVar{Name: "bobs", ValueFrom: &corev1.EnvVarSource{
@@ -360,6 +355,7 @@ var _ = Describe("AppWorkload to StatefulSet Converter", func() {
 		It("produces a statefulset with sorted env vars", func() {
 			Expect(statefulSet.Spec.Template.Spec.Containers[0].Env).To(Equal([]corev1.EnvVar{
 				{Name: "CF_INSTANCE_GUID", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.uid"}}},
+				{Name: "CF_INSTANCE_INDEX", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['apps.kubernetes.io/pod-index']"}}},
 				{Name: "CF_INSTANCE_INTERNAL_IP", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.podIP"}}},
 				{Name: "CF_INSTANCE_IP", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.hostIP"}}},
 				{Name: "POD_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"}}},
@@ -378,19 +374,5 @@ var _ = Describe("AppWorkload to StatefulSet Converter", func() {
 				return fmt.Sprintf("failed on iteration %d", i)
 			})
 		}
-	})
-
-	It("does not set spec.securityContext.seccompProfile", func() {
-		Expect(statefulSet.Spec.Template.Spec.SecurityContext.SeccompProfile).To(BeNil())
-	})
-
-	When("statefulsetRunnerTemporarySetPodSeccompProfile is set to true", func() {
-		BeforeEach(func() {
-			statefulsetRunnerTemporarySetPodSeccompProfile = true
-		})
-
-		It("sets spec.securityContext.seccompProfile to RuntimeDefault", func() {
-			Expect(statefulSet.Spec.Template.Spec.SecurityContext.SeccompProfile.Type).To(Equal(corev1.SeccompProfileTypeRuntimeDefault))
-		})
 	})
 })

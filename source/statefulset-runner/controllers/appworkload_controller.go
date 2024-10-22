@@ -20,12 +20,10 @@ import (
 	"context"
 
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
-	"code.cloudfoundry.org/korifi/controllers/controllers/shared"
 	"code.cloudfoundry.org/korifi/tools/k8s"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -51,12 +49,11 @@ const (
 	AnnotationAppID       = "korifi.cloudfoundry.org/application-id"
 	AnnotationProcessGUID = "korifi.cloudfoundry.org/process-guid"
 
-	LabelGUID                   = "korifi.cloudfoundry.org/guid"
-	LabelVersion                = "korifi.cloudfoundry.org/version"
-	LabelAppGUID                = "korifi.cloudfoundry.org/app-guid"
-	LabelAppWorkloadGUID        = "korifi.cloudfoundry.org/appworkload-guid"
-	LabelProcessType            = "korifi.cloudfoundry.org/process-type"
-	LabelStatefulSetRunnerIndex = "korifi.cloudfoundry.org/add-stsr-index"
+	LabelGUID            = "korifi.cloudfoundry.org/guid"
+	LabelVersion         = "korifi.cloudfoundry.org/version"
+	LabelAppGUID         = "korifi.cloudfoundry.org/app-guid"
+	LabelAppWorkloadGUID = "korifi.cloudfoundry.org/appworkload-guid"
+	LabelProcessType     = "korifi.cloudfoundry.org/process-type"
 
 	ApplicationContainerName  = "application"
 	AppWorkloadReconcilerName = "statefulset-runner"
@@ -64,8 +61,6 @@ const (
 
 	LivenessFailureThreshold  = 4
 	ReadinessFailureThreshold = 1
-
-	PodAffinityTermWeight = 100
 )
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
@@ -151,16 +146,8 @@ func filterAppWorkloads(object client.Object) bool {
 func (r *AppWorkloadReconciler) ReconcileResource(ctx context.Context, appWorkload *korifiv1alpha1.AppWorkload) (ctrl.Result, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
-	var err error
-	readyConditionBuilder := k8s.NewReadyConditionBuilder(appWorkload)
-	defer func() {
-		meta.SetStatusCondition(&appWorkload.Status.Conditions, readyConditionBuilder.WithError(err).Build())
-	}()
-
 	appWorkload.Status.ObservedGeneration = appWorkload.Generation
 	log.V(1).Info("set observed generation", "generation", appWorkload.Status.ObservedGeneration)
-
-	shared.GetConditionOrSetAsUnknown(&appWorkload.Status.Conditions, korifiv1alpha1.StatusConditionReady, appWorkload.Generation)
 
 	statefulSet, err := r.workloadsToStSet.Convert(appWorkload)
 	// Not clear what errors this would produce, but we may use it later
@@ -196,6 +183,5 @@ func (r *AppWorkloadReconciler) ReconcileResource(ctx context.Context, appWorklo
 
 	appWorkload.Status.ActualInstances = createdStSet.Status.Replicas
 
-	readyConditionBuilder.Ready()
 	return ctrl.Result{}, nil
 }

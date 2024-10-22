@@ -21,11 +21,18 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
-	UserProvidedType     = "user-provided"
-	CredentialsSecretKey = "credentials"
+	UserProvidedType = "user-provided"
+	ManagedType      = "managed"
+
+	CFManagedServiceInstanceFinalizerName = "managed.cfServiceInstance.korifi.cloudfoundry.org"
+
+	ProvisionRequestedCondition   = "ProvisionRequested"
+	ProvisioningFailedCondition   = "ProvisioningFailed"
+	DeprovisionRequestedCondition = "DeprovisionRequested"
 )
 
 // CFServiceInstanceSpec defines the desired state of CFServiceInstance
@@ -36,7 +43,7 @@ type CFServiceInstanceSpec struct {
 	// Name of a secret containing the service credentials. The Secret must be in the same namespace
 	SecretName string `json:"secretName"`
 
-	// Type of the Service Instance. Must be `user-provided`
+	// Type of the Service Instance. Must be `user-provided` or `managed`
 	Type InstanceType `json:"type"`
 
 	// Service label to use when adding this instance to VCAP_Services
@@ -46,10 +53,14 @@ type CFServiceInstanceSpec struct {
 
 	// Tags are used by apps to identify service instances
 	Tags []string `json:"tags,omitempty"`
+
+	PlanGUID string `json:"plan_guid"`
+
+	Parameters *runtime.RawExtension `json:"parameters,omitempty"`
 }
 
 // InstanceType defines the type of the Service Instance
-// +kubebuilder:validation:Enum=user-provided
+// +kubebuilder:validation:Enum=user-provided;managed
 type InstanceType string
 
 // CFServiceInstanceStatus defines the observed state of CFServiceInstance
@@ -69,6 +80,9 @@ type CFServiceInstanceStatus struct {
 	// This will ensure that interested contollers are notified on instance credentials change
 	//+kubebuilder:validation:Optional
 	CredentialsObservedVersion string `json:"credentialsObservedVersion,omitempty"`
+
+	ProvisionOperation   string `json:"provisionOperation,omitempty"`
+	DeprovisionOperation string `json:"deprovisionOperation,omitempty"`
 }
 
 //+kubebuilder:object:root=true
@@ -95,8 +109,8 @@ func (si CFServiceInstance) UniqueValidationErrorMessage() string {
 	return fmt.Sprintf("The service instance name is taken: %s", si.Spec.DisplayName)
 }
 
-func (si CFServiceInstance) StatusConditions() []metav1.Condition {
-	return si.Status.Conditions
+func (si *CFServiceInstance) StatusConditions() *[]metav1.Condition {
+	return &si.Status.Conditions
 }
 
 //+kubebuilder:object:root=true

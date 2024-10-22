@@ -31,6 +31,7 @@ var _ = Describe("PackageRepository", func() {
 		repoCreator      *fake.RepositoryCreator
 		conditionAwaiter *fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFPackage,
+			korifiv1alpha1.CFPackage,
 			korifiv1alpha1.CFPackageList,
 			*korifiv1alpha1.CFPackageList,
 		]
@@ -45,6 +46,7 @@ var _ = Describe("PackageRepository", func() {
 		repoCreator = new(fake.RepositoryCreator)
 		conditionAwaiter = &fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFPackage,
+			korifiv1alpha1.CFPackage,
 			korifiv1alpha1.CFPackageList,
 			*korifiv1alpha1.CFPackageList,
 		]{}
@@ -153,6 +155,10 @@ var _ = Describe("PackageRepository", func() {
 					Expect(createdPackage.CreatedAt).To(BeTemporally("~", time.Now(), timeCheckThreshold))
 
 					Expect(createdPackage.UpdatedAt).To(PointTo(BeTemporally("~", time.Now(), timeCheckThreshold)))
+
+					Expect(createdPackage.Relationships()).To(Equal(map[string]string{
+						"app": appGUID,
+					}))
 
 					packageNSName := types.NamespacedName{Name: packageGUID, Namespace: space.Name}
 					createdCFPackage := new(korifiv1alpha1.CFPackage)

@@ -1,9 +1,13 @@
 package presenter
 
 import (
+	"maps"
 	"net/url"
 	"path"
 	"time"
+
+	"code.cloudfoundry.org/korifi/model"
+	"github.com/BooleanCat/go-functional/v2/it"
 )
 
 type Lifecycle struct {
@@ -16,14 +20,18 @@ type LifecycleData struct {
 	Stack      string   `json:"stack,omitempty"`
 }
 
-type Relationships map[string]Relationship
-
-type Relationship struct {
-	Data *RelationshipData `json:"data"`
+type RelationshipData struct {
+	GUID string `json:"guid,omitempty"`
 }
 
-type RelationshipData struct {
-	GUID string `json:"guid"`
+func ForRelationships(relationships map[string]string) map[string]model.ToOneRelationship {
+	return maps.Collect(it.Map2(maps.All(relationships), func(key, value string) (string, model.ToOneRelationship) {
+		return key, model.ToOneRelationship{
+			Data: model.Relationship{
+				GUID: value,
+			},
+		}
+	}))
 }
 
 type Metadata struct {
@@ -37,9 +45,9 @@ type Link struct {
 }
 
 type ListResponse[T any] struct {
-	PaginationData PaginationData `json:"pagination"`
-	Resources      []T            `json:"resources"`
-	Included       *IncludedData  `json:"included,omitempty"`
+	PaginationData PaginationData   `json:"pagination"`
+	Resources      []T              `json:"resources"`
+	Included       map[string][]any `json:"included,omitempty"`
 }
 
 type PaginationData struct {
@@ -51,17 +59,13 @@ type PaginationData struct {
 	Previous     *int    `json:"previous"`
 }
 
-type IncludedData struct {
-	Apps []interface{} `json:"apps"`
-}
-
 type PageRef struct {
 	HREF string `json:"href"`
 }
 
 type itemPresenter[T, S any] func(T, url.URL) S
 
-func ForList[T, S any](itemPresenter itemPresenter[T, S], resources []T, baseURL, requestURL url.URL) ListResponse[S] {
+func ForList[T, S any](itemPresenter itemPresenter[T, S], resources []T, baseURL, requestURL url.URL, includes ...model.IncludedResource) ListResponse[S] {
 	presenters := []S{}
 	for _, resource := range resources {
 		presenters = append(presenters, itemPresenter(resource, baseURL))
@@ -78,7 +82,21 @@ func ForList[T, S any](itemPresenter itemPresenter[T, S], resources []T, baseURL
 			},
 		},
 		Resources: presenters,
+		Included:  includedResources(includes...),
 	}
+}
+
+func includedResources(includes ...model.IncludedResource) map[string][]any {
+	resources := map[string][]any{}
+	for _, include := range includes {
+		if resources[include.Type] == nil {
+			resources[include.Type] = []any{}
+		}
+
+		resources[include.Type] = append(resources[include.Type], include.Resource)
+	}
+
+	return resources
 }
 
 type buildURL url.URL

@@ -2,8 +2,12 @@ package presenter
 
 import (
 	"net/url"
+	"slices"
 
 	"code.cloudfoundry.org/korifi/api/repositories"
+	"code.cloudfoundry.org/korifi/model"
+	"github.com/BooleanCat/go-functional/v2/it"
+	"github.com/BooleanCat/go-functional/v2/it/itx"
 )
 
 const (
@@ -17,7 +21,7 @@ type ServiceBindingResponse struct {
 	CreatedAt     string                              `json:"created_at"`
 	UpdatedAt     string                              `json:"updated_at"`
 	LastOperation ServiceBindingLastOperationResponse `json:"last_operation"`
-	Relationships Relationships                       `json:"relationships"`
+	Relationships map[string]model.ToOneRelationship  `json:"relationships"`
 	Links         ServiceBindingLinks                 `json:"links"`
 	Metadata      Metadata                            `json:"metadata"`
 }
@@ -51,10 +55,7 @@ func ForServiceBinding(record repositories.ServiceBindingRecord, baseURL url.URL
 			CreatedAt:   formatTimestamp(&record.LastOperation.CreatedAt),
 			UpdatedAt:   formatTimestamp(record.LastOperation.UpdatedAt),
 		},
-		Relationships: map[string]Relationship{
-			"app":              {&RelationshipData{record.AppGUID}},
-			"service_instance": {&RelationshipData{record.ServiceInstanceGUID}},
-		},
+		Relationships: ForRelationships(record.Relationships()),
 		Links: ServiceBindingLinks{
 			App: Link{
 				HRef: buildURL(baseURL).appendPath(appsBase, record.AppGUID).build(),
@@ -77,13 +78,12 @@ func ForServiceBinding(record repositories.ServiceBindingRecord, baseURL url.URL
 }
 
 func ForServiceBindingList(serviceBindingRecords []repositories.ServiceBindingRecord, appRecords []repositories.AppRecord, baseURL, requestURL url.URL) ListResponse[ServiceBindingResponse] {
-	ret := ForList(ForServiceBinding, serviceBindingRecords, baseURL, requestURL)
-	if len(appRecords) > 0 {
-		appData := IncludedData{}
-		for _, appRecord := range appRecords {
-			appData.Apps = append(appData.Apps, ForApp(appRecord, baseURL))
+	includedApps := slices.Collect(it.Map(itx.FromSlice(appRecords), func(app repositories.AppRecord) model.IncludedResource {
+		return model.IncludedResource{
+			Type:     "apps",
+			Resource: ForApp(app, baseURL),
 		}
-		ret.Included = &appData
-	}
-	return ret
+	}))
+
+	return ForList(ForServiceBinding, serviceBindingRecords, baseURL, requestURL, includedApps...)
 }

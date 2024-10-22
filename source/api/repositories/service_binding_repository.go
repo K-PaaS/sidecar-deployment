@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"k8s.io/apimachinery/pkg/labels"
@@ -13,8 +14,11 @@ import (
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/controllers/webhooks/services/bindings"
 	"code.cloudfoundry.org/korifi/controllers/webhooks/validation"
+	"code.cloudfoundry.org/korifi/tools"
 	"code.cloudfoundry.org/korifi/tools/k8s"
 
+	"github.com/BooleanCat/go-functional/v2/it"
+	"github.com/BooleanCat/go-functional/v2/it/itx"
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -63,6 +67,13 @@ type ServiceBindingRecord struct {
 	LastOperation       ServiceBindingLastOperation
 }
 
+func (r ServiceBindingRecord) Relationships() map[string]string {
+	return map[string]string{
+		"app":              r.AppGUID,
+		"service_instance": r.ServiceInstanceGUID,
+	}
+}
+
 type ServiceBindingLastOperation struct {
 	Type        string
 	State       string
@@ -86,6 +97,11 @@ type ListServiceBindingsMessage struct {
 	AppGUIDs             []string
 	ServiceInstanceGUIDs []string
 	LabelSelector        string
+}
+
+func (m *ListServiceBindingsMessage) matches(serviceBinding korifiv1alpha1.CFServiceBinding) bool {
+	return tools.EmptyOrContains(m.ServiceInstanceGUIDs, serviceBinding.Spec.Service.Name) &&
+		tools.EmptyOrContains(m.AppGUIDs, serviceBinding.Spec.AppRef.Name)
 }
 
 func (m CreateServiceBindingMessage) toCFServiceBinding() *korifiv1alpha1.CFServiceBinding {
@@ -149,7 +165,7 @@ func (r *ServiceBindingRepo) CreateServiceBinding(ctx context.Context, authInfo 
 		return ServiceBindingRecord{}, err
 	}
 
-	return cfServiceBindingToRecord(cfServiceBinding), err
+	return cfServiceBindingToRecord(*cfServiceBinding), err
 }
 
 func (r *ServiceBindingRepo) DeleteServiceBinding(ctx context.Context, authInfo authorization.Info, guid string) error {
@@ -194,7 +210,7 @@ func (r *ServiceBindingRepo) GetServiceBinding(ctx context.Context, authInfo aut
 		return ServiceBindingRecord{}, apierrors.FromK8sError(err, ServiceBindingResourceType)
 	}
 
-	return cfServiceBindingToRecord(serviceBinding), nil
+	return cfServiceBindingToRecord(*serviceBinding), nil
 }
 
 func (r *ServiceBindingRepo) UpdateServiceBinding(ctx context.Context, authInfo authorization.Info, updateMsg UpdateServiceBindingMessage) (ServiceBindingRecord, error) {
@@ -227,10 +243,10 @@ func (r *ServiceBindingRepo) UpdateServiceBinding(ctx context.Context, authInfo 
 		return ServiceBindingRecord{}, fmt.Errorf("failed to patch service binding metadata: %w", apierrors.FromK8sError(err, ServiceBindingResourceType))
 	}
 
-	return cfServiceBindingToRecord(serviceBinding), nil
+	return cfServiceBindingToRecord(*serviceBinding), nil
 }
 
-func cfServiceBindingToRecord(binding *korifiv1alpha1.CFServiceBinding) ServiceBindingRecord {
+func cfServiceBindingToRecord(binding korifiv1alpha1.CFServiceBinding) ServiceBindingRecord {
 	return ServiceBindingRecord{
 		GUID:                binding.Name,
 		Type:                ServiceBindingTypeApp,
@@ -241,32 +257,27 @@ func cfServiceBindingToRecord(binding *korifiv1alpha1.CFServiceBinding) ServiceB
 		Labels:              binding.Labels,
 		Annotations:         binding.Annotations,
 		CreatedAt:           binding.CreationTimestamp.Time,
-		UpdatedAt:           getLastUpdatedTime(binding),
+		UpdatedAt:           getLastUpdatedTime(&binding),
 		LastOperation: ServiceBindingLastOperation{
 			Type:        "create",
 			State:       "succeeded",
 			Description: nil,
 			CreatedAt:   binding.CreationTimestamp.Time,
-			UpdatedAt:   getLastUpdatedTime(binding),
+			UpdatedAt:   getLastUpdatedTime(&binding),
 		},
 	}
 }
 
 // nolint:dupl
 func (r *ServiceBindingRepo) ListServiceBindings(ctx context.Context, authInfo authorization.Info, message ListServiceBindingsMessage) ([]ServiceBindingRecord, error) {
-	nsList, err := r.namespacePermissions.GetAuthorizedSpaceNamespaces(ctx, authInfo)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list namespaces for spaces with user role bindings: %w", err)
-	}
-
 	userClient, err := r.userClientFactory.BuildClient(authInfo)
 	if err != nil {
 		return []ServiceBindingRecord{}, fmt.Errorf("failed to build user client: %w", err)
 	}
 
-	preds := []func(korifiv1alpha1.CFServiceBinding) bool{
-		SetPredicate(message.ServiceInstanceGUIDs, func(s korifiv1alpha1.CFServiceBinding) string { return s.Spec.Service.Name }),
-		SetPredicate(message.AppGUIDs, func(s korifiv1alpha1.CFServiceBinding) string { return s.Spec.AppRef.Name }),
+	authorizedSpaceNamespaces, err := authorizedSpaceNamespaces(ctx, authInfo, r.namespacePermissions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list namespaces for spaces with user role bindings: %w", err)
 	}
 
 	labelSelector, err := labels.Parse(message.LabelSelector)
@@ -274,8 +285,8 @@ func (r *ServiceBindingRepo) ListServiceBindings(ctx context.Context, authInfo a
 		return []ServiceBindingRecord{}, apierrors.NewUnprocessableEntityError(err, "invalid label selector")
 	}
 
-	var filteredServiceBindings []korifiv1alpha1.CFServiceBinding
-	for ns := range nsList {
+	var serviceBindings []korifiv1alpha1.CFServiceBinding
+	for _, ns := range authorizedSpaceNamespaces.Collect() {
 		serviceBindingList := new(korifiv1alpha1.CFServiceBindingList)
 		err = userClient.List(ctx, serviceBindingList, client.InNamespace(ns), &client.ListOptions{LabelSelector: labelSelector})
 		if k8serrors.IsForbidden(err) {
@@ -287,17 +298,9 @@ func (r *ServiceBindingRepo) ListServiceBindings(ctx context.Context, authInfo a
 				apierrors.FromK8sError(err, ServiceBindingResourceType),
 			)
 		}
-		filteredServiceBindings = append(filteredServiceBindings, Filter(serviceBindingList.Items, preds...)...)
+		serviceBindings = append(serviceBindings, serviceBindingList.Items...)
 	}
 
-	return toServiceBindingRecords(filteredServiceBindings), nil
-}
-
-func toServiceBindingRecords(serviceBindings []korifiv1alpha1.CFServiceBinding) []ServiceBindingRecord {
-	serviceInstanceRecords := make([]ServiceBindingRecord, 0, len(serviceBindings))
-
-	for i := range serviceBindings {
-		serviceInstanceRecords = append(serviceInstanceRecords, cfServiceBindingToRecord(&serviceBindings[i]))
-	}
-	return serviceInstanceRecords
+	filteredServiceBindings := itx.FromSlice(serviceBindings).Filter(message.matches)
+	return slices.Collect(it.Map(filteredServiceBindings, cfServiceBindingToRecord)), nil
 }

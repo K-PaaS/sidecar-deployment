@@ -4,13 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path"
+	"slices"
 
 	"code.cloudfoundry.org/korifi/api/actions/shared"
 	"code.cloudfoundry.org/korifi/api/authorization"
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	"code.cloudfoundry.org/korifi/api/repositories"
-	"golang.org/x/exp/maps"
+	"code.cloudfoundry.org/korifi/api/tools/singleton"
 )
 
 type StateCollector struct {
@@ -48,12 +50,20 @@ func NewStateCollector(
 }
 
 func (s StateCollector) CollectState(ctx context.Context, authInfo authorization.Info, appName, spaceGUID string) (AppState, error) {
-	appRecord, err := s.appRepo.GetAppByNameAndSpace(ctx, authInfo, appName, spaceGUID)
+	appRecords, err := s.appRepo.ListApps(ctx, authInfo, repositories.ListAppsMessage{
+		Names:      []string{appName},
+		SpaceGUIDs: []string{spaceGUID},
+	})
+	if err != nil {
+		return AppState{}, apierrors.FromK8sError(err, repositories.AppResourceType)
+	}
+
+	appRecord, err := singleton.Get(appRecords)
 	if err != nil {
 		if errors.As(err, new(apierrors.NotFoundError)) {
 			return AppState{}, nil
 		}
-		return AppState{}, apierrors.ForbiddenAsNotFound(err)
+		return AppState{}, err
 	}
 
 	existingProcesses, err := s.collectProcesses(ctx, authInfo, appRecord.GUID, spaceGUID)
@@ -122,7 +132,7 @@ func (s StateCollector) collectServiceBindings(ctx context.Context, authInfo aut
 		serviceInstanceGUIDSet[sb.ServiceInstanceGUID] = true
 	}
 
-	services, err := s.serviceInstanceRepo.ListServiceInstances(ctx, authInfo, repositories.ListServiceInstanceMessage{GUIDs: maps.Keys(serviceInstanceGUIDSet)})
+	services, err := s.serviceInstanceRepo.ListServiceInstances(ctx, authInfo, repositories.ListServiceInstanceMessage{GUIDs: slices.Collect(maps.Keys(serviceInstanceGUIDSet))})
 	if err != nil {
 		return nil, err
 	}

@@ -347,7 +347,7 @@ func createProcessCR(ctx context.Context, k8sClient client.Client, processGUID, 
 					TimeoutSeconds:           0,
 				},
 			},
-			DesiredInstances: tools.PtrTo(1),
+			DesiredInstances: tools.PtrTo[int32](1),
 			MemoryMB:         500,
 			DiskQuotaMB:      512,
 		},
@@ -419,21 +419,6 @@ func createServiceBindingCR(ctx context.Context, k8sClient client.Client, servic
 		k8sClient.Create(ctx, toReturn),
 	).To(Succeed())
 	return toReturn
-}
-
-func initializeAppCreateMessage(appName string, spaceGUID string) repositories.CreateAppMessage {
-	return repositories.CreateAppMessage{
-		Name:      appName,
-		SpaceGUID: spaceGUID,
-		State:     "STOPPED",
-		Lifecycle: repositories.Lifecycle{
-			Type: "buildpack",
-			Data: repositories.LifecycleData{
-				Buildpacks: []string{},
-				Stack:      "cflinuxfs3",
-			},
-		},
-	}
 }
 
 func createApp(space string) *korifiv1alpha1.CFApp {

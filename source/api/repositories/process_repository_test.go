@@ -79,6 +79,10 @@ var _ = Describe("ProcessRepo", func() {
 				Expect(processRecord.HealthCheck.Data.InvocationTimeoutSeconds).To(Equal(cfProcess1.Spec.HealthCheck.Data.InvocationTimeoutSeconds))
 				Expect(processRecord.HealthCheck.Data.TimeoutSeconds).To(Equal(cfProcess1.Spec.HealthCheck.Data.TimeoutSeconds))
 				Expect(processRecord.HealthCheck.Data.HTTPEndpoint).To(Equal(cfProcess1.Spec.HealthCheck.Data.HTTPEndpoint))
+
+				Expect(processRecord.Relationships()).To(Equal(map[string]string{
+					"app": app1GUID,
+				}))
 			})
 		})
 
@@ -195,7 +199,6 @@ var _ = Describe("ProcessRepo", func() {
 
 				It("returns an empty list", func() {
 					Expect(processes).To(BeEmpty())
-					Expect(processes).ToNot(BeNil())
 				})
 			})
 
@@ -218,7 +221,7 @@ var _ = Describe("ProcessRepo", func() {
 			cfProcess           *korifiv1alpha1.CFProcess
 			scaleProcessMessage *repositories.ScaleProcessMessage
 
-			instanceScale int
+			instanceScale int32
 			diskScaleMB   int64
 			memoryScaleMB int64
 		)
@@ -249,7 +252,7 @@ var _ = Describe("ProcessRepo", func() {
 			})
 
 			DescribeTable("calling ScaleProcess with a set of scale values returns an updated CFProcess record",
-				func(instances *int, diskMB, memoryMB *int64) {
+				func(instances *int32, diskMB, memoryMB *int64) {
 					scaleProcessMessage.ProcessScaleValues = repositories.ProcessScaleValues{
 						Instances: instances,
 						DiskMB:    diskMB,
@@ -303,16 +306,16 @@ var _ = Describe("ProcessRepo", func() {
 
 			When("scaling down a process to 0 instances", func() {
 				It("works", func() {
-					scaleProcessMessage.ProcessScaleValues = repositories.ProcessScaleValues{Instances: tools.PtrTo(0)}
+					scaleProcessMessage.ProcessScaleValues = repositories.ProcessScaleValues{Instances: tools.PtrTo[int32](0)}
 					scaleProcessRecord, scaleProcessErr := processRepo.ScaleProcess(context.Background(), authInfo, *scaleProcessMessage)
 					Expect(scaleProcessErr).ToNot(HaveOccurred())
 
-					Expect(scaleProcessRecord.DesiredInstances).To(Equal(0))
+					Expect(scaleProcessRecord.DesiredInstances).To(BeZero())
 
 					var updatedCFProcess korifiv1alpha1.CFProcess
 					Expect(k8sClient.Get(ctx, client.ObjectKey{Name: process1GUID, Namespace: space1.Name}, &updatedCFProcess)).To(Succeed())
 
-					Expect(updatedCFProcess.Spec.DesiredInstances).To(PointTo(Equal(0)))
+					Expect(updatedCFProcess.Spec.DesiredInstances).To(PointTo(BeZero()))
 				})
 			})
 
@@ -343,7 +346,7 @@ var _ = Describe("ProcessRepo", func() {
 						TimeoutSeconds:           10,
 					},
 				},
-				DesiredInstances: tools.PtrTo(42),
+				DesiredInstances: tools.PtrTo[int32](42),
 				MemoryMB:         456,
 			})
 		})
@@ -374,7 +377,7 @@ var _ = Describe("ProcessRepo", func() {
 							TimeoutSeconds:           10,
 						},
 					},
-					DesiredInstances: tools.PtrTo(42),
+					DesiredInstances: tools.PtrTo[int32](42),
 					MemoryMB:         456,
 					DiskQuotaMB:      123,
 				}))
@@ -388,69 +391,62 @@ var _ = Describe("ProcessRepo", func() {
 		})
 	})
 
-	Describe("GetProcessByAppTypeAndSpace", func() {
-		const (
-			processType = "web"
-		)
-
+	Describe("GetAppRevisionForProcess", func() {
 		var (
-			processRecord repositories.ProcessRecord
-			getErr        error
+			appRevision string
+			getErr      error
 		)
-
+		BeforeEach(func() {
+			app := &korifiv1alpha1.CFApp{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      app1GUID,
+					Namespace: space.Name,
+					Annotations: map[string]string{
+						"korifi.cloudfoundry.org/app-rev": "revision",
+					},
+				},
+				Spec: korifiv1alpha1.CFAppSpec{
+					DesiredState: "STOPPED",
+					DisplayName:  "app1",
+					Lifecycle: korifiv1alpha1.Lifecycle{
+						Type: "buildpack",
+						Data: korifiv1alpha1.LifecycleData{
+							Buildpacks: []string{},
+							Stack:      "",
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, app)).To(Succeed())
+		})
 		JustBeforeEach(func() {
-			processRecord, getErr = processRepo.GetProcessByAppTypeAndSpace(ctx, authInfo, app1GUID, processType, space.Name)
+			appRevision, getErr = processRepo.GetAppRevision(ctx, authInfo, app1GUID)
 		})
 
-		When("the user is not authorized in the space", func() {
-			It("returns a forbidden error", func() {
-				Expect(getErr).To(matchers.WrapErrorAssignableToTypeOf(apierrors.ForbiddenError{}))
-			})
+		It("returns a forbidden error", func() {
+			Expect(getErr).To(matchers.WrapErrorAssignableToTypeOf(apierrors.ForbiddenError{}))
 		})
 
 		When("the user has permission to get the process", func() {
 			BeforeEach(func() {
-				createProcessCR(context.Background(), k8sClient, process1GUID, space.Name, app1GUID)
 				createRoleBinding(ctx, userName, spaceDeveloperRole.Name, space.Name)
 			})
 
-			It("returns a Process record with the specified app type and space", func() {
+			It("returns the App Revision", func() {
 				Expect(getErr).NotTo(HaveOccurred())
-				Expect(processRecord).To(MatchAllFields(Fields{
-					"GUID":             Equal(process1GUID),
-					"SpaceGUID":        Equal(space.Name),
-					"AppGUID":          Equal(app1GUID),
-					"Type":             Equal(processType),
-					"Command":          Equal(""),
-					"DesiredInstances": Equal(1),
-					"MemoryMB":         BeEquivalentTo(500),
-					"DiskQuotaMB":      BeEquivalentTo(512),
-					"HealthCheck": Equal(repositories.HealthCheck{
-						Type: "process",
-						Data: repositories.HealthCheckData{
-							InvocationTimeoutSeconds: 0,
-							TimeoutSeconds:           0,
-						},
-					}),
-					"Labels":      HaveKeyWithValue(korifiv1alpha1.CFAppGUIDLabelKey, app1GUID),
-					"Annotations": BeEmpty(),
-					"CreatedAt":   BeTemporally("~", time.Now(), timeCheckThreshold),
-					"UpdatedAt":   PointTo(BeTemporally("~", time.Now(), timeCheckThreshold)),
-				}))
+				Expect(appRevision).To(ContainSubstring("revision"))
+			})
+		})
+		When("there is no matching app", func() {
+			BeforeEach(func() {
+				app1GUID = "i don't exist"
 			})
 
-			When("there is no matching process", func() {
-				BeforeEach(func() {
-					app1GUID = "i don't exist"
-				})
-
-				It("returns a not found error", func() {
-					Expect(getErr).To(MatchError(apierrors.NewNotFoundError(nil, repositories.ProcessResourceType)))
-				})
+			It("returns a not found error", func() {
+				Expect(getErr).To(matchers.WrapErrorAssignableToTypeOf(apierrors.NotFoundError{}))
 			})
 		})
 	})
-
 	Describe("PatchProcess", func() {
 		When("the app already has a process with the given type", func() {
 			var (
@@ -480,7 +476,7 @@ var _ = Describe("ProcessRepo", func() {
 								TimeoutSeconds:           2,
 							},
 						},
-						DesiredInstances: tools.PtrTo(1),
+						DesiredInstances: tools.PtrTo[int32](1),
 						MemoryMB:         2,
 						DiskQuotaMB:      3,
 					},
@@ -497,9 +493,9 @@ var _ = Describe("ProcessRepo", func() {
 						Command:                             tools.PtrTo("start-web"),
 						HealthCheckType:                     tools.PtrTo("http"),
 						HealthCheckHTTPEndpoint:             tools.PtrTo("/healthz"),
-						HealthCheckInvocationTimeoutSeconds: tools.PtrTo(int64(20)),
-						HealthCheckTimeoutSeconds:           tools.PtrTo(int64(10)),
-						DesiredInstances:                    tools.PtrTo(42),
+						HealthCheckInvocationTimeoutSeconds: tools.PtrTo(int32(20)),
+						HealthCheckTimeoutSeconds:           tools.PtrTo(int32(10)),
+						DesiredInstances:                    tools.PtrTo[int32](42),
 						MemoryMB:                            tools.PtrTo(int64(456)),
 						DiskQuotaMB:                         tools.PtrTo(int64(123)),
 					}
@@ -525,9 +521,9 @@ var _ = Describe("ProcessRepo", func() {
 							Command:                             tools.PtrTo("start-web"),
 							HealthCheckType:                     tools.PtrTo("http"),
 							HealthCheckHTTPEndpoint:             tools.PtrTo("/healthz"),
-							HealthCheckInvocationTimeoutSeconds: tools.PtrTo(int64(20)),
-							HealthCheckTimeoutSeconds:           tools.PtrTo(int64(10)),
-							DesiredInstances:                    tools.PtrTo(42),
+							HealthCheckInvocationTimeoutSeconds: tools.PtrTo(int32(20)),
+							HealthCheckTimeoutSeconds:           tools.PtrTo(int32(10)),
+							DesiredInstances:                    tools.PtrTo[int32](42),
 							MemoryMB:                            tools.PtrTo(int64(456)),
 							DiskQuotaMB:                         tools.PtrTo(int64(123)),
 							MetadataPatch: &repositories.MetadataPatch{
@@ -567,7 +563,7 @@ var _ = Describe("ProcessRepo", func() {
 									TimeoutSeconds:           10,
 								},
 							},
-							DesiredInstances: tools.PtrTo(42),
+							DesiredInstances: tools.PtrTo[int32](42),
 							MemoryMB:         456,
 							DiskQuotaMB:      123,
 						}))
@@ -582,8 +578,8 @@ var _ = Describe("ProcessRepo", func() {
 							ProcessGUID:               process1GUID,
 							SpaceGUID:                 space.Name,
 							Command:                   tools.PtrTo("new-command"),
-							HealthCheckTimeoutSeconds: tools.PtrTo(int64(42)),
-							DesiredInstances:          tools.PtrTo(5),
+							HealthCheckTimeoutSeconds: tools.PtrTo(int32(42)),
+							DesiredInstances:          tools.PtrTo[int32](5),
 							MemoryMB:                  tools.PtrTo(int64(123)),
 						}
 					})
@@ -616,7 +612,7 @@ var _ = Describe("ProcessRepo", func() {
 									TimeoutSeconds:           42,
 								},
 							},
-							DesiredInstances: tools.PtrTo(5),
+							DesiredInstances: tools.PtrTo[int32](5),
 							MemoryMB:         123,
 							DiskQuotaMB:      3,
 						}))

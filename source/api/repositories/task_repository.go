@@ -3,13 +3,17 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"code.cloudfoundry.org/korifi/api/authorization"
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/tasks"
+	"code.cloudfoundry.org/korifi/tools"
 	"code.cloudfoundry.org/korifi/tools/k8s"
+	"github.com/BooleanCat/go-functional/v2/it"
+	"github.com/BooleanCat/go-functional/v2/it/itx"
 	"github.com/google/uuid"
 	v1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -47,6 +51,12 @@ type TaskRecord struct {
 	FailureReason string
 }
 
+func (t TaskRecord) Relationships() map[string]string {
+	return map[string]string{
+		"app": t.AppGUID,
+	}
+}
+
 type CreateTaskMessage struct {
 	Command   string
 	SpaceGUID string
@@ -57,6 +67,11 @@ type CreateTaskMessage struct {
 type ListTaskMessage struct {
 	AppGUIDs    []string
 	SequenceIDs []int64
+}
+
+func (m *ListTaskMessage) matches(task korifiv1alpha1.CFTask) bool {
+	return tools.EmptyOrContains(m.SequenceIDs, task.Status.SequenceID) &&
+		tools.EmptyOrContains(m.AppGUIDs, task.Spec.AppRef.Name)
 }
 
 type PatchTaskMetadataMessage struct {
@@ -122,7 +137,7 @@ func (r *TaskRepo) CreateTask(ctx context.Context, authInfo authorization.Info, 
 		return TaskRecord{}, fmt.Errorf("failed waiting for task to get initialized: %w", err)
 	}
 
-	return taskToRecord(task), nil
+	return taskToRecord(*task), nil
 }
 
 func (r *TaskRepo) GetTask(ctx context.Context, authInfo authorization.Info, taskGUID string) (TaskRecord, error) {
@@ -148,7 +163,7 @@ func (r *TaskRepo) GetTask(ctx context.Context, authInfo authorization.Info, tas
 		return TaskRecord{}, apierrors.NewNotFoundError(fmt.Errorf("task %s not initialized yet", taskGUID), TaskResourceType)
 	}
 
-	return taskToRecord(cfTask), nil
+	return taskToRecord(*cfTask), nil
 }
 
 func (r *TaskRepo) awaitCondition(ctx context.Context, userClient client.WithWatch, task *korifiv1alpha1.CFTask, conditionType string) (*korifiv1alpha1.CFTask, error) {
@@ -161,23 +176,18 @@ func (r *TaskRepo) awaitCondition(ctx context.Context, userClient client.WithWat
 }
 
 func (r *TaskRepo) ListTasks(ctx context.Context, authInfo authorization.Info, msg ListTaskMessage) ([]TaskRecord, error) {
-	nsList, err := r.namespacePermissions.GetAuthorizedSpaceNamespaces(ctx, authInfo)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list namespaces for spaces with user role bindings: %w", err)
-	}
-
 	userClient, err := r.userClientFactory.BuildClient(authInfo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build user client: %w", err)
 	}
 
-	preds := []func(korifiv1alpha1.CFTask) bool{
-		SetPredicate(msg.SequenceIDs, func(s korifiv1alpha1.CFTask) int64 { return s.Status.SequenceID }),
-		SetPredicate(msg.AppGUIDs, func(s korifiv1alpha1.CFTask) string { return s.Spec.AppRef.Name }),
+	nsList, err := authorizedSpaceNamespaces(ctx, authInfo, r.namespacePermissions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list namespaces for spaces with user role bindings: %w", err)
 	}
 
 	var tasks []korifiv1alpha1.CFTask
-	for ns := range nsList {
+	for _, ns := range nsList.Collect() {
 		taskList := &korifiv1alpha1.CFTaskList{}
 		err := userClient.List(ctx, taskList, client.InNamespace(ns))
 		if k8serrors.IsForbidden(err) {
@@ -186,15 +196,11 @@ func (r *TaskRepo) ListTasks(ctx context.Context, authInfo authorization.Info, m
 		if err != nil {
 			return nil, fmt.Errorf("failed to list tasks in namespace %s: %w", ns, apierrors.FromK8sError(err, TaskResourceType))
 		}
-		tasks = append(tasks, Filter(taskList.Items, preds...)...)
+		tasks = append(tasks, taskList.Items...)
 	}
 
-	taskRecords := []TaskRecord{}
-	for i := range tasks {
-		taskRecords = append(taskRecords, taskToRecord(&tasks[i]))
-	}
-
-	return taskRecords, nil
+	filteredTasks := itx.FromSlice(tasks).Filter(msg.matches)
+	return slices.Collect(it.Map(filteredTasks, taskToRecord)), nil
 }
 
 func (r *TaskRepo) CancelTask(ctx context.Context, authInfo authorization.Info, taskGUID string) (TaskRecord, error) {
@@ -226,7 +232,7 @@ func (r *TaskRepo) CancelTask(ctx context.Context, authInfo authorization.Info, 
 		return TaskRecord{}, fmt.Errorf("failed waiting for task to get canceled: %w", err)
 	}
 
-	return taskToRecord(task), nil
+	return taskToRecord(*task), nil
 }
 
 func (r *TaskRepo) PatchTaskMetadata(ctx context.Context, authInfo authorization.Info, message PatchTaskMetadataMessage) (TaskRecord, error) {
@@ -248,10 +254,10 @@ func (r *TaskRepo) PatchTaskMetadata(ctx context.Context, authInfo authorization
 		return TaskRecord{}, apierrors.FromK8sError(err, TaskResourceType)
 	}
 
-	return taskToRecord(task), nil
+	return taskToRecord(*task), nil
 }
 
-func taskToRecord(task *korifiv1alpha1.CFTask) TaskRecord {
+func taskToRecord(task korifiv1alpha1.CFTask) TaskRecord {
 	taskRecord := TaskRecord{
 		Name:        task.Name,
 		GUID:        task.Name,
@@ -260,11 +266,11 @@ func taskToRecord(task *korifiv1alpha1.CFTask) TaskRecord {
 		AppGUID:     task.Spec.AppRef.Name,
 		SequenceID:  task.Status.SequenceID,
 		CreatedAt:   task.CreationTimestamp.Time,
-		UpdatedAt:   getLastUpdatedTime(task),
+		UpdatedAt:   getLastUpdatedTime(&task),
 		MemoryMB:    task.Status.MemoryMB,
 		DiskMB:      task.Status.DiskQuotaMB,
 		DropletGUID: task.Status.DropletRef.Name,
-		State:       toRecordState(task),
+		State:       toRecordState(&task),
 		Labels:      task.Labels,
 		Annotations: task.Annotations,
 	}

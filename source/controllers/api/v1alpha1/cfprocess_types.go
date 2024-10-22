@@ -46,7 +46,7 @@ type CFProcessSpec struct {
 	HealthCheck HealthCheck `json:"healthCheck"`
 
 	// The desired number of replicas to deploy
-	DesiredInstances *int `json:"desiredInstances,omitempty"`
+	DesiredInstances *int32 `json:"desiredInstances,omitempty"`
 
 	// The memory limit in MiB
 	MemoryMB int64 `json:"memoryMB"`
@@ -79,8 +79,8 @@ type HealthCheckData struct {
 	// The http endpoint to use with "http" healthchecks
 	HTTPEndpoint string `json:"httpEndpoint,omitempty"`
 
-	InvocationTimeoutSeconds int64 `json:"invocationTimeoutSeconds"`
-	TimeoutSeconds           int64 `json:"timeoutSeconds"`
+	InvocationTimeoutSeconds int32 `json:"invocationTimeoutSeconds"`
+	TimeoutSeconds           int32 `json:"timeoutSeconds"`
 }
 
 // CFProcessStatus defines the observed state of CFProcess
@@ -116,12 +116,16 @@ type CFProcessList struct {
 	Items           []CFProcess `json:"items"`
 }
 
-func (r *CFProcess) SetStableName(appGUID string) {
-	r.Name = strings.Join([]string{processNamePrefix, appGUID, r.Spec.ProcessType}, "-")
-	if r.Labels == nil {
-		r.Labels = map[string]string{}
+func (p *CFProcess) SetStableName(appGUID string) {
+	p.Name = strings.Join([]string{processNamePrefix, appGUID, p.Spec.ProcessType}, "-")
+	if p.Labels == nil {
+		p.Labels = map[string]string{}
 	}
-	r.Labels[CFProcessGUIDLabelKey] = r.Name
+	p.Labels[CFProcessGUIDLabelKey] = p.Name
+}
+
+func (p *CFProcess) StatusConditions() *[]metav1.Condition {
+	return &p.Status.Conditions
 }
 
 func init() {

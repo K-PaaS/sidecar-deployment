@@ -7,10 +7,12 @@ import (
 	"sort"
 
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
+	"code.cloudfoundry.org/korifi/api/handlers/include"
 	"code.cloudfoundry.org/korifi/api/payloads"
 	"code.cloudfoundry.org/korifi/api/routing"
 
 	"code.cloudfoundry.org/korifi/api/presenter"
+	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 
 	"code.cloudfoundry.org/korifi/api/repositories"
 
@@ -26,7 +28,8 @@ const (
 
 //counterfeiter:generate -o fake -fake-name CFServiceInstanceRepository . CFServiceInstanceRepository
 type CFServiceInstanceRepository interface {
-	CreateServiceInstance(context.Context, authorization.Info, repositories.CreateServiceInstanceMessage) (repositories.ServiceInstanceRecord, error)
+	CreateUserProvidedServiceInstance(context.Context, authorization.Info, repositories.CreateUPSIMessage) (repositories.ServiceInstanceRecord, error)
+	CreateManagedServiceInstance(context.Context, authorization.Info, repositories.CreateManagedSIMessage) (repositories.ServiceInstanceRecord, error)
 	PatchServiceInstance(context.Context, authorization.Info, repositories.PatchServiceInstanceMessage) (repositories.ServiceInstanceRecord, error)
 	ListServiceInstances(context.Context, authorization.Info, repositories.ListServiceInstanceMessage) ([]repositories.ServiceInstanceRecord, error)
 	GetServiceInstance(context.Context, authorization.Info, string) (repositories.ServiceInstanceRecord, error)
@@ -38,6 +41,10 @@ type ServiceInstance struct {
 	serviceInstanceRepo CFServiceInstanceRepository
 	spaceRepo           CFSpaceRepository
 	requestValidator    RequestValidator
+	includeResolver     *include.IncludeResolver[
+		[]repositories.ServiceInstanceRecord,
+		repositories.ServiceInstanceRecord,
+	]
 }
 
 func NewServiceInstance(
@@ -45,12 +52,14 @@ func NewServiceInstance(
 	serviceInstanceRepo CFServiceInstanceRepository,
 	spaceRepo CFSpaceRepository,
 	requestValidator RequestValidator,
+	relationshipRepo include.ResourceRelationshipRepository,
 ) *ServiceInstance {
 	return &ServiceInstance{
 		serverURL:           serverURL,
 		serviceInstanceRepo: serviceInstanceRepo,
 		spaceRepo:           spaceRepo,
 		requestValidator:    requestValidator,
+		includeResolver:     include.NewIncludeResolver[[]repositories.ServiceInstanceRecord](relationshipRepo, presenter.NewResource(serverURL)),
 	}
 }
 
@@ -75,9 +84,37 @@ func (h *ServiceInstance) create(r *http.Request) (*routing.Response, error) {
 		)
 	}
 
-	serviceInstanceRecord, err := h.serviceInstanceRepo.CreateServiceInstance(r.Context(), authInfo, payload.ToServiceInstanceCreateMessage())
+	if payload.Type == "managed" {
+		return h.createManagedServiceInstance(r.Context(), logger, authInfo, payload)
+	}
+
+	return h.createUserProvidedServiceInstance(r.Context(), logger, authInfo, payload)
+}
+
+func (h *ServiceInstance) createManagedServiceInstance(
+	ctx context.Context,
+	logger logr.Logger,
+	authInfo authorization.Info,
+	payload payloads.ServiceInstanceCreate,
+) (*routing.Response, error) {
+	serviceInstanceRecord, err := h.serviceInstanceRepo.CreateManagedServiceInstance(ctx, authInfo, payload.ToManagedSICreateMessage())
 	if err != nil {
-		return nil, apierrors.LogAndReturn(logger, err, "Failed to create service instance", "Service Instance Name", serviceInstanceRecord.Name)
+		return nil, apierrors.LogAndReturn(logger, err, "Failed to create managed service instance", "Service Instance Name", payload.Name)
+	}
+
+	return routing.NewResponse(http.StatusAccepted).
+		WithHeader("Location", presenter.JobURLForRedirects(serviceInstanceRecord.GUID, presenter.ManagedServiceInstanceCreateOperation, h.serverURL)), nil
+}
+
+func (h *ServiceInstance) createUserProvidedServiceInstance(
+	ctx context.Context,
+	logger logr.Logger,
+	authInfo authorization.Info,
+	payload payloads.ServiceInstanceCreate,
+) (*routing.Response, error) {
+	serviceInstanceRecord, err := h.serviceInstanceRepo.CreateUserProvidedServiceInstance(ctx, authInfo, payload.ToUPSICreateMessage())
+	if err != nil {
+		return nil, apierrors.LogAndReturn(logger, err, "Failed to create user provided service instance", "Service Instance Name", payload.Name)
 	}
 
 	return routing.NewResponse(http.StatusCreated).WithBody(presenter.ForServiceInstance(serviceInstanceRecord, h.serverURL)), nil
@@ -112,20 +149,25 @@ func (h *ServiceInstance) list(r *http.Request) (*routing.Response, error) {
 	authInfo, _ := authorization.InfoFromContext(r.Context())
 	logger := logr.FromContextOrDiscard(r.Context()).WithName("handlers.service-instance.list")
 
-	listFilter := new(payloads.ServiceInstanceList)
-	err := h.requestValidator.DecodeAndValidateURLValues(r, listFilter)
+	payload := new(payloads.ServiceInstanceList)
+	err := h.requestValidator.DecodeAndValidateURLValues(r, payload)
 	if err != nil {
 		return nil, apierrors.LogAndReturn(logger, err, "Unable to decode request query parameters")
 	}
 
-	serviceInstanceList, err := h.serviceInstanceRepo.ListServiceInstances(r.Context(), authInfo, listFilter.ToMessage())
+	serviceInstances, err := h.serviceInstanceRepo.ListServiceInstances(r.Context(), authInfo, payload.ToMessage())
 	if err != nil {
 		return nil, apierrors.LogAndReturn(logger, err, "Failed to list service instance")
 	}
 
-	h.sortList(serviceInstanceList, listFilter.OrderBy)
+	h.sortList(serviceInstances, payload.OrderBy)
 
-	return routing.NewResponse(http.StatusOK).WithBody(presenter.ForList(presenter.ForServiceInstance, serviceInstanceList, h.serverURL, *r.URL)), nil
+	includedResources, err := h.includeResolver.ResolveIncludes(r.Context(), authInfo, serviceInstances, payload.IncludeResourceRules)
+	if err != nil {
+		return nil, apierrors.LogAndReturn(logger, err, "failed to build included resources")
+	}
+
+	return routing.NewResponse(http.StatusOK).WithBody(presenter.ForList(presenter.ForServiceInstance, serviceInstances, h.serverURL, *r.URL, includedResources...)), nil
 }
 
 // nolint:dupl
@@ -164,6 +206,10 @@ func (h *ServiceInstance) delete(r *http.Request) (*routing.Response, error) {
 	})
 	if err != nil {
 		return nil, apierrors.LogAndReturn(logger, err, "error when deleting service instance", "guid", serviceInstanceGUID)
+	}
+
+	if serviceInstance.Type == korifiv1alpha1.ManagedType {
+		return routing.NewResponse(http.StatusAccepted).WithHeader("Location", presenter.JobURLForRedirects(serviceInstance.GUID, presenter.ManagedServiceInstanceDeleteOperation, h.serverURL)), nil
 	}
 
 	return routing.NewResponse(http.StatusNoContent), nil

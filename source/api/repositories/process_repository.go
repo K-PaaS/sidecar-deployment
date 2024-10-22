@@ -2,14 +2,17 @@ package repositories
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"code.cloudfoundry.org/korifi/api/authorization"
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
+	"code.cloudfoundry.org/korifi/tools"
 	"code.cloudfoundry.org/korifi/tools/k8s"
+	"github.com/BooleanCat/go-functional/v2/it"
+	"github.com/BooleanCat/go-functional/v2/it/itx"
 
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -17,9 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const (
-	ProcessResourceType = "Process"
-)
+const ProcessResourceType = "Process"
 
 func NewProcessRepo(namespaceRetriever NamespaceRetriever, userClientFactory authorization.UserK8sClientFactory, namespacePermissions *authorization.NamespacePermissions) *ProcessRepo {
 	return &ProcessRepo{
@@ -41,7 +42,7 @@ type ProcessRecord struct {
 	AppGUID          string
 	Type             string
 	Command          string
-	DesiredInstances int
+	DesiredInstances int32
 	MemoryMB         int64
 	DiskQuotaMB      int64
 	HealthCheck      HealthCheck
@@ -51,6 +52,16 @@ type ProcessRecord struct {
 	UpdatedAt        *time.Time
 }
 
+func (r ProcessRecord) Relationships() map[string]string {
+	return map[string]string{
+		"app": r.AppGUID,
+	}
+}
+
+func (r ProcessRecord) GetResourceType() string {
+	return ProcessResourceType
+}
+
 type HealthCheck struct {
 	Type string
 	Data HealthCheckData
@@ -58,8 +69,8 @@ type HealthCheck struct {
 
 type HealthCheckData struct {
 	HTTPEndpoint             string
-	InvocationTimeoutSeconds int64
-	TimeoutSeconds           int64
+	InvocationTimeoutSeconds int32
+	TimeoutSeconds           int32
 }
 
 type ScaleProcessMessage struct {
@@ -69,7 +80,7 @@ type ScaleProcessMessage struct {
 }
 
 type ProcessScaleValues struct {
-	Instances *int
+	Instances *int32
 	MemoryMB  *int64
 	DiskMB    *int64
 }
@@ -81,7 +92,7 @@ type CreateProcessMessage struct {
 	Command          string
 	DiskQuotaMB      int64
 	HealthCheck      HealthCheck
-	DesiredInstances *int
+	DesiredInstances *int32
 	MemoryMB         int64
 }
 
@@ -91,17 +102,30 @@ type PatchProcessMessage struct {
 	Command                             *string
 	DiskQuotaMB                         *int64
 	HealthCheckHTTPEndpoint             *string
-	HealthCheckInvocationTimeoutSeconds *int64
-	HealthCheckTimeoutSeconds           *int64
+	HealthCheckInvocationTimeoutSeconds *int32
+	HealthCheckTimeoutSeconds           *int32
 	HealthCheckType                     *string
-	DesiredInstances                    *int
+	DesiredInstances                    *int32
 	MemoryMB                            *int64
 	MetadataPatch                       *MetadataPatch
 }
 
 type ListProcessesMessage struct {
-	AppGUIDs  []string
-	SpaceGUID string
+	AppGUIDs     []string
+	ProcessTypes []string
+	SpaceGUID    string
+}
+
+func (m *ListProcessesMessage) matches(process korifiv1alpha1.CFProcess) bool {
+	return tools.EmptyOrContains(m.AppGUIDs, process.Spec.AppRef.Name) &&
+		tools.EmptyOrContains(m.ProcessTypes, process.Spec.ProcessType)
+}
+
+func (m *ListProcessesMessage) matchesNamespace(ns string) bool {
+	if m.SpaceGUID == "" {
+		return true
+	}
+	return ns == m.SpaceGUID
 }
 
 func (r *ProcessRepo) GetProcess(ctx context.Context, authInfo authorization.Info, processGUID string) (ProcessRecord, error) {
@@ -125,38 +149,33 @@ func (r *ProcessRepo) GetProcess(ctx context.Context, authInfo authorization.Inf
 }
 
 func (r *ProcessRepo) ListProcesses(ctx context.Context, authInfo authorization.Info, message ListProcessesMessage) ([]ProcessRecord, error) {
-	nsList, err := r.namespacePermissions.GetAuthorizedSpaceNamespaces(ctx, authInfo)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list namespaces for spaces with user role bindings: %w", err)
-	}
-
 	userClient, err := r.clientFactory.BuildClient(authInfo)
 	if err != nil {
 		return []ProcessRecord{}, fmt.Errorf("get-process: failed to build user k8s client: %w", err)
 	}
 
-	preds := []func(korifiv1alpha1.CFProcess) bool{
-		SetPredicate(message.AppGUIDs, func(s korifiv1alpha1.CFProcess) string { return s.Spec.AppRef.Name }),
+	authorisedSpaceNamespacesIter, err := authorizedSpaceNamespaces(ctx, authInfo, r.namespacePermissions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list namespaces for spaces with user role bindings: %w", err)
 	}
 
-	processList := &korifiv1alpha1.CFProcessList{}
-	var matches []korifiv1alpha1.CFProcess
-	for ns := range nsList {
-		if message.SpaceGUID != "" && message.SpaceGUID != ns {
-			continue
-		}
+	processes := []korifiv1alpha1.CFProcess{}
+	nsList := authorisedSpaceNamespacesIter.Filter(message.matchesNamespace).Collect()
+	for _, ns := range nsList {
+		processList := &korifiv1alpha1.CFProcessList{}
 		err = userClient.List(ctx, processList, client.InNamespace(ns))
 		if k8serrors.IsForbidden(err) {
 			continue
 		}
 		if err != nil {
-			return []ProcessRecord{}, apierrors.FromK8sError(err, ProcessResourceType)
+			return nil, fmt.Errorf("failed to list pods: %w", apierrors.FromK8sError(err, PodResourceType))
 		}
-		allProcesses := processList.Items
-		matches = append(matches, Filter(allProcesses, preds...)...)
+
+		processes = append(processes, processList.Items...)
 	}
 
-	return returnProcesses(matches)
+	filteredProcesses := itx.FromSlice(processes).Filter(message.matches)
+	return slices.Collect(it.Map(filteredProcesses, cfProcessToProcessRecord)), nil
 }
 
 func (r *ProcessRepo) ScaleProcess(ctx context.Context, authInfo authorization.Info, scaleProcessMessage ScaleProcessMessage) (ProcessRecord, error) {
@@ -217,28 +236,29 @@ func (r *ProcessRepo) CreateProcess(ctx context.Context, authInfo authorization.
 	return apierrors.FromK8sError(err, ProcessResourceType)
 }
 
-func (r *ProcessRepo) GetProcessByAppTypeAndSpace(ctx context.Context, authInfo authorization.Info, appGUID, processType, spaceGUID string) (ProcessRecord, error) {
-	// Could narrow down process results via AppGUID label, but that is set up by a webhook that isn't configured in our integration tests
-	// For now, don't use labels
+func (r *ProcessRepo) GetAppRevision(ctx context.Context, authInfo authorization.Info, appGUID string) (string, error) {
+	var appRevision string
+	ns, err := r.namespaceRetriever.NamespaceFor(ctx, appGUID, AppResourceType)
+	if err != nil {
+		return appRevision, fmt.Errorf("get-apprevision-for-process: failed to get namespace: %w", apierrors.FromK8sError(err, ProcessResourceType))
+	}
+
 	userClient, err := r.clientFactory.BuildClient(authInfo)
 	if err != nil {
-		return ProcessRecord{}, fmt.Errorf("get-process-by-app-type-and-space: failed to build user k8s client: %w", err)
+		return appRevision, fmt.Errorf("get-apprevision-for-process: failed to build user k8s client: %w", err)
 	}
-
-	var processList korifiv1alpha1.CFProcessList
-	err = userClient.List(ctx, &processList, client.InNamespace(spaceGUID))
+	app := korifiv1alpha1.CFApp{}
+	err = userClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: appGUID}, &app)
 	if err != nil {
-		return ProcessRecord{}, apierrors.FromK8sError(err, ProcessResourceType)
+		return appRevision, fmt.Errorf("get-apprevision-for-process: failed to get app from kubernetes: %w", apierrors.FromK8sError(err, ProcessResourceType))
 	}
 
-	var matches []korifiv1alpha1.CFProcess
-	for _, process := range processList.Items {
-		if process.Spec.AppRef.Name == appGUID && process.Spec.ProcessType == processType {
-			matches = append(matches, process)
-		}
+	appRevision = app.ObjectMeta.Annotations["korifi.cloudfoundry.org/app-rev"]
+	if appRevision == "" {
+		return appRevision, fmt.Errorf("get-apprevision-for-process: cannot find app revision")
 	}
 
-	return returnProcess(matches)
+	return appRevision, nil
 }
 
 func (r *ProcessRepo) PatchProcess(ctx context.Context, authInfo authorization.Info, message PatchProcessMessage) (ProcessRecord, error) {
@@ -288,27 +308,6 @@ func (r *ProcessRepo) PatchProcess(ctx context.Context, authInfo authorization.I
 	}
 
 	return cfProcessToProcessRecord(*updatedProcess), nil
-}
-
-func returnProcess(processes []korifiv1alpha1.CFProcess) (ProcessRecord, error) {
-	if len(processes) == 0 {
-		return ProcessRecord{}, apierrors.NewNotFoundError(nil, ProcessResourceType)
-	}
-	if len(processes) > 1 {
-		return ProcessRecord{}, errors.New("duplicate processes exist")
-	}
-
-	return cfProcessToProcessRecord(processes[0]), nil
-}
-
-func returnProcesses(processes []korifiv1alpha1.CFProcess) ([]ProcessRecord, error) {
-	processRecords := make([]ProcessRecord, 0, len(processes))
-	for _, process := range processes {
-		processRecord := cfProcessToProcessRecord(process)
-		processRecords = append(processRecords, processRecord)
-	}
-
-	return processRecords, nil
 }
 
 func cfProcessToProcessRecord(cfProcess korifiv1alpha1.CFProcess) ProcessRecord {

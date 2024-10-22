@@ -28,6 +28,7 @@ var _ = Describe("TaskRepository", func() {
 	var (
 		conditionAwaiter *fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFTask,
+			korifiv1alpha1.CFTask,
 			korifiv1alpha1.CFTaskList,
 			*korifiv1alpha1.CFTaskList,
 		]
@@ -40,6 +41,7 @@ var _ = Describe("TaskRepository", func() {
 	BeforeEach(func() {
 		conditionAwaiter = &fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFTask,
+			korifiv1alpha1.CFTask,
 			korifiv1alpha1.CFTaskList,
 			*korifiv1alpha1.CFTaskList,
 		]{}
@@ -234,6 +236,10 @@ var _ = Describe("TaskRepository", func() {
 					Expect(taskRecord.DiskMB).To(BeEquivalentTo(128))
 					Expect(taskRecord.DropletGUID).To(Equal(cfApp.Spec.CurrentDropletRef.Name))
 					Expect(taskRecord.State).To(Equal(repositories.TaskStatePending))
+
+					Expect(taskRecord.Relationships()).To(Equal(map[string]string{
+						"app": cfApp.Name,
+					}))
 				})
 
 				When("the task is running", func() {

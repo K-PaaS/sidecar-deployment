@@ -46,11 +46,13 @@ var _ = Describe("RoleRepository", func() {
 		}
 		orgRepo := repositories.NewOrgRepo(rootNamespace, k8sClient, userClientFactory, nsPerms, &fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFOrg,
+			korifiv1alpha1.CFOrg,
 			korifiv1alpha1.CFOrgList,
 			*korifiv1alpha1.CFOrgList,
 		]{})
 		spaceRepo := repositories.NewSpaceRepo(namespaceRetriever, orgRepo, userClientFactory, nsPerms, &fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFSpace,
+			korifiv1alpha1.CFSpace,
 			korifiv1alpha1.CFSpaceList,
 			*korifiv1alpha1.CFSpaceList,
 		]{})
@@ -633,6 +635,11 @@ var _ = Describe("RoleRepository", func() {
 					User:      "bob",
 					Kind:      "User",
 				}))
+
+				Expect(roleRecord.Relationships()).To(Equal(map[string]string{
+					"user":         "bob",
+					"organization": cfOrg.Name,
+				}))
 			})
 
 			When("the role does not exist", func() {
@@ -651,7 +658,7 @@ var _ = Describe("RoleRepository", func() {
 				})
 
 				It("returns an error", func() {
-					Expect(getErr).To(MatchError(ContainSubstring("multiple role bindings")))
+					Expect(getErr).To(BeAssignableToTypeOf(apierrors.UnprocessableEntityError{}))
 				})
 			})
 		})

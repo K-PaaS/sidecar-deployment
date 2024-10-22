@@ -1,6 +1,8 @@
 package spaces_test
 
 import (
+	"maps"
+	"slices"
 	"time"
 
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
@@ -10,7 +12,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
-	"golang.org/x/exp/maps"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -44,6 +45,7 @@ var _ = Describe("CFSpaceReconciler Integration Tests", func() {
 			g.Expect(ns.Labels).To(SatisfyAll(
 				HaveKeyWithValue(korifiv1alpha1.SpaceNameKey, korifiv1alpha1.OrgSpaceDeprecatedName),
 				HaveKeyWithValue(korifiv1alpha1.SpaceGUIDKey, cfSpace.Name),
+				HaveKeyWithValue(korifiv1alpha1.OrgGUIDKey, cfSpace.Namespace),
 				HaveKeyWithValue(api.EnforceLevelLabel, string(api.LevelRestricted)),
 			))
 			g.Expect(ns.Annotations).To(HaveKeyWithValue(korifiv1alpha1.SpaceNameKey, cfSpace.Spec.DisplayName))
@@ -143,7 +145,7 @@ var _ = Describe("CFSpaceReconciler Integration Tests", func() {
 				}).Should(Succeed())
 
 				By("omitting annotations from deployment tools", func() {
-					Expect(maps.Keys(createdServiceAccount.Annotations)).To(ConsistOf("cloudfoundry.org/propagate-service-account"))
+					Expect(slices.Collect(maps.Keys(createdServiceAccount.Annotations))).To(ConsistOf("cloudfoundry.org/propagate-service-account"))
 					Expect(createdServiceAccount.Annotations["cloudfoundry.org/propagate-service-account"]).To(Equal("true"))
 				})
 			})

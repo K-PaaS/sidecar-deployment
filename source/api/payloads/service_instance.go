@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strings"
 
+	"code.cloudfoundry.org/korifi/api/payloads/params"
 	"code.cloudfoundry.org/korifi/api/payloads/parse"
 	"code.cloudfoundry.org/korifi/api/payloads/validation"
 	"code.cloudfoundry.org/korifi/api/repositories"
@@ -18,6 +20,7 @@ type ServiceInstanceCreate struct {
 	Type          string                        `json:"type"`
 	Tags          []string                      `json:"tags"`
 	Credentials   map[string]any                `json:"credentials"`
+	Parameters    map[string]any                `json:"parameters"`
 	Relationships *ServiceInstanceRelationships `json:"relationships"`
 	Metadata      Metadata                      `json:"metadata"`
 }
@@ -44,32 +47,58 @@ func validateTagLength(tags any) error {
 func (c ServiceInstanceCreate) Validate() error {
 	return jellidation.ValidateStruct(&c,
 		jellidation.Field(&c.Name, jellidation.Required),
-		jellidation.Field(&c.Type, jellidation.Required, validation.OneOf("user-provided")),
+		jellidation.Field(&c.Type, jellidation.Required, validation.OneOf("user-provided", "managed")),
 		jellidation.Field(&c.Tags, jellidation.By(validateTagLength)),
-		jellidation.Field(&c.Relationships, jellidation.NotNil),
+		jellidation.Field(&c.Relationships, jellidation.NotNil, jellidation.By(func(r any) error {
+			rel := r.(*ServiceInstanceRelationships)
+			if c.Type == "user-provided" {
+				return rel.ValidateUserProvidedRelationships()
+			}
+
+			return rel.ValidateManagedRelationships()
+		})),
 		jellidation.Field(&c.Metadata),
 	)
 }
 
-func (p ServiceInstanceCreate) ToServiceInstanceCreateMessage() repositories.CreateServiceInstanceMessage {
-	return repositories.CreateServiceInstanceMessage{
+func (p ServiceInstanceCreate) ToUPSICreateMessage() repositories.CreateUPSIMessage {
+	return repositories.CreateUPSIMessage{
 		Name:        p.Name,
 		SpaceGUID:   p.Relationships.Space.Data.GUID,
 		Credentials: p.Credentials,
-		Type:        p.Type,
 		Tags:        p.Tags,
 		Labels:      p.Metadata.Labels,
 		Annotations: p.Metadata.Annotations,
 	}
 }
 
-type ServiceInstanceRelationships struct {
-	Space *Relationship `json:"space"`
+func (p ServiceInstanceCreate) ToManagedSICreateMessage() repositories.CreateManagedSIMessage {
+	return repositories.CreateManagedSIMessage{
+		Name:        p.Name,
+		SpaceGUID:   p.Relationships.Space.Data.GUID,
+		PlanGUID:    p.Relationships.ServicePlan.Data.GUID,
+		Tags:        p.Tags,
+		Labels:      p.Metadata.Labels,
+		Annotations: p.Metadata.Annotations,
+		Parameters:  p.Parameters,
+	}
 }
 
-func (r ServiceInstanceRelationships) Validate() error {
+type ServiceInstanceRelationships struct {
+	Space       *Relationship `json:"space"`
+	ServicePlan *Relationship `json:"service_plan"`
+}
+
+func (r ServiceInstanceRelationships) ValidateUserProvidedRelationships() error {
 	return jellidation.ValidateStruct(&r,
 		jellidation.Field(&r.Space, jellidation.NotNil),
+	)
+}
+
+func (r ServiceInstanceRelationships) ValidateManagedRelationships() error {
+	return jellidation.ValidateStruct(&r,
+		jellidation.Field(&r.Space, jellidation.NotNil),
+		jellidation.Field(&r.ServicePlan, jellidation.NotNil),
 	)
 }
 
@@ -129,16 +158,50 @@ func (p *ServiceInstancePatch) UnmarshalJSON(data []byte) error {
 }
 
 type ServiceInstanceList struct {
-	Names         string
-	GUIDs         string
-	SpaceGUIDs    string
-	OrderBy       string
-	LabelSelector string
+	Names                string
+	GUIDs                string
+	SpaceGUIDs           string
+	OrderBy              string
+	LabelSelector        string
+	IncludeResourceRules []params.IncludeResourceRule
 }
 
 func (l ServiceInstanceList) Validate() error {
 	return jellidation.ValidateStruct(&l,
 		jellidation.Field(&l.OrderBy, validation.OneOfOrderBy("created_at", "name", "updated_at")),
+		jellidation.Field(&l.IncludeResourceRules, jellidation.Each(jellidation.By(func(value any) error {
+			rule, ok := value.(params.IncludeResourceRule)
+			if !ok {
+				return fmt.Errorf("%T is not supported, IncludeResourceRule is expected", value)
+			}
+
+			relationshipsPath := strings.Join(rule.RelationshipPath, ".")
+			switch relationshipsPath {
+			case "service_plan":
+				return jellidation.Each(validation.OneOf(
+					"guid",
+					"name",
+					"relationships.service_offering",
+				)).Validate(rule.Fields)
+			case "service_plan.service_offering":
+				return jellidation.Each(validation.OneOf(
+					"guid",
+					"name",
+					"relationships.service_broker",
+				)).Validate(rule.Fields)
+			case "service_plan.service_offering.service_broker":
+				return jellidation.Each(validation.OneOf(
+					"guid",
+					"name",
+				)).Validate(rule.Fields)
+			}
+
+			return validation.OneOf(
+				"service_plan",
+				"service_plan.service_offering",
+				"service_plan.service_offering.service_broker",
+			).Validate(relationshipsPath)
+		}))),
 	)
 }
 
@@ -152,11 +215,23 @@ func (l *ServiceInstanceList) ToMessage() repositories.ListServiceInstanceMessag
 }
 
 func (l *ServiceInstanceList) SupportedKeys() []string {
-	return []string{"names", "space_guids", "guids", "order_by", "per_page", "page", "label_selector"}
+	return []string{
+		"names",
+		"space_guids",
+		"guids",
+		"order_by",
+		"label_selector",
+		"fields[service_plan.service_offering]",
+		"fields[service_plan.service_offering.service_broker]",
+		"fields[service_plan]",
+	}
 }
 
 func (l *ServiceInstanceList) IgnoredKeys() []*regexp.Regexp {
-	return []*regexp.Regexp{regexp.MustCompile(`fields\[.+\]`)}
+	return []*regexp.Regexp{
+		regexp.MustCompile("page"),
+		regexp.MustCompile("per_page"),
+	}
 }
 
 func (l *ServiceInstanceList) DecodeFromURLValues(values url.Values) error {
@@ -165,5 +240,6 @@ func (l *ServiceInstanceList) DecodeFromURLValues(values url.Values) error {
 	l.GUIDs = values.Get("guids")
 	l.OrderBy = values.Get("order_by")
 	l.LabelSelector = values.Get("label_selector")
+	l.IncludeResourceRules = append(l.IncludeResourceRules, params.ParseFields(values)...)
 	return nil
 }

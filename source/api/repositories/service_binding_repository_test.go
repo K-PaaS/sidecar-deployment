@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"code.cloudfoundry.org/korifi/api/authorization"
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	"code.cloudfoundry.org/korifi/api/repositories"
 	"code.cloudfoundry.org/korifi/api/repositories/fakeawaiter"
@@ -34,6 +33,7 @@ var _ = Describe("ServiceBindingRepo", func() {
 		bindingName         *string
 		conditionAwaiter    *fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFServiceBinding,
+			korifiv1alpha1.CFServiceBinding,
 			korifiv1alpha1.CFServiceBindingList,
 			*korifiv1alpha1.CFServiceBindingList,
 		]
@@ -43,6 +43,7 @@ var _ = Describe("ServiceBindingRepo", func() {
 		testCtx = context.Background()
 		conditionAwaiter = &fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFServiceBinding,
+			korifiv1alpha1.CFServiceBinding,
 			korifiv1alpha1.CFServiceBindingList,
 			*korifiv1alpha1.CFServiceBindingList,
 		]{}
@@ -137,6 +138,11 @@ var _ = Describe("ServiceBindingRepo", func() {
 				Expect(serviceBindingRecord.LastOperation.Description).To(BeNil())
 				Expect(serviceBindingRecord.LastOperation.CreatedAt).To(Equal(serviceBindingRecord.CreatedAt))
 				Expect(serviceBindingRecord.LastOperation.UpdatedAt).To(Equal(serviceBindingRecord.UpdatedAt))
+
+				Expect(serviceBindingRecord.Relationships()).To(Equal(map[string]string{
+					"app":              appGUID,
+					"service_instance": serviceInstanceGUID,
+				}))
 
 				serviceBinding := new(korifiv1alpha1.CFServiceBinding)
 				Expect(
@@ -488,16 +494,6 @@ var _ = Describe("ServiceBindingRepo", func() {
 			It("returns an empty list and no error", func() {
 				Expect(listErr).NotTo(HaveOccurred())
 				Expect(responseServiceBindings).To(BeEmpty())
-			})
-		})
-
-		When("fetching authorized namespaces fails", func() {
-			BeforeEach(func() {
-				authInfo = authorization.Info{}
-			})
-
-			It("returns the error", func() {
-				Expect(listErr).To(MatchError(ContainSubstring("failed to get identity")))
 			})
 		})
 	})

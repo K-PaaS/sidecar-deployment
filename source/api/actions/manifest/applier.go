@@ -3,6 +3,8 @@ package manifest
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"code.cloudfoundry.org/korifi/api/actions/shared"
@@ -10,8 +12,8 @@ import (
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	"code.cloudfoundry.org/korifi/api/payloads"
 	"code.cloudfoundry.org/korifi/api/repositories"
+	"code.cloudfoundry.org/korifi/api/tools/singleton"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
-	"golang.org/x/exp/maps"
 )
 
 type Applier struct {
@@ -123,9 +125,16 @@ func (a *Applier) createOrUpdateRoute(ctx context.Context, authInfo authorizatio
 
 	hostName, domainName, path := splitRoute(routeString)
 
-	domainRecord, err := a.domainRepo.GetDomainByName(ctx, authInfo, domainName)
+	domains, err := a.domainRepo.ListDomains(ctx, authInfo, repositories.ListDomainsMessage{
+		Names: []string{domainName},
+	})
 	if err != nil {
-		return fmt.Errorf("getDomainByName: %w", err)
+		return fmt.Errorf("failed to list domains: %w", err)
+	}
+
+	domain, err := singleton.Get(domains)
+	if err != nil {
+		return err
 	}
 
 	routeRecord, err := a.routeRepo.GetOrCreateRoute(
@@ -135,19 +144,19 @@ func (a *Applier) createOrUpdateRoute(ctx context.Context, authInfo authorizatio
 			Host:            hostName,
 			Path:            path,
 			SpaceGUID:       appState.App.SpaceGUID,
-			DomainGUID:      domainRecord.GUID,
-			DomainNamespace: domainRecord.Namespace,
-			DomainName:      domainRecord.Name,
+			DomainGUID:      domain.GUID,
+			DomainNamespace: domain.Namespace,
+			DomainName:      domain.Name,
 		})
 	if err != nil {
 		return fmt.Errorf("getOrCreateRoute: %w", err)
 	}
 
-	_, err = a.routeRepo.AddDestinationsToRoute(ctx, authInfo, repositories.AddDestinationsToRouteMessage{
+	_, err = a.routeRepo.AddDestinationsToRoute(ctx, authInfo, repositories.AddDestinationsMessage{
 		RouteGUID:            routeRecord.GUID,
 		SpaceGUID:            routeRecord.SpaceGUID,
 		ExistingDestinations: routeRecord.Destinations,
-		NewDestinations: []repositories.DestinationMessage{{
+		NewDestinations: []repositories.DesiredDestination{{
 			AppGUID:     appState.App.GUID,
 			ProcessType: korifiv1alpha1.ProcessTypeWeb,
 		}},
@@ -184,10 +193,10 @@ func (a *Applier) deleteAppDestinations(
 }
 
 func (a *Applier) deleteAppDestination(ctx context.Context, authInfo authorization.Info, route repositories.RouteRecord, destinationGUID string, existingDestinations []repositories.DestinationRecord) ([]repositories.DestinationRecord, error) {
-	route, err := a.routeRepo.RemoveDestinationFromRoute(ctx, authInfo, repositories.RemoveDestinationFromRouteMessage{
-		RouteGUID:       route.GUID,
-		SpaceGUID:       route.SpaceGUID,
-		DestinationGuid: destinationGUID,
+	route, err := a.routeRepo.RemoveDestinationFromRoute(ctx, authInfo, repositories.RemoveDestinationMessage{
+		RouteGUID: route.GUID,
+		SpaceGUID: route.SpaceGUID,
+		GUID:      destinationGUID,
 	})
 	if err != nil {
 		return nil, err
@@ -210,7 +219,7 @@ func (a *Applier) applyServices(ctx context.Context, authInfo authorization.Info
 	}
 
 	serviceInstances, err := a.serviceInstanceRepo.ListServiceInstances(ctx, authInfo, repositories.ListServiceInstanceMessage{
-		Names: maps.Keys(desiredServiceNames),
+		Names: slices.Collect(maps.Keys(desiredServiceNames)),
 	})
 	if err != nil {
 		return err

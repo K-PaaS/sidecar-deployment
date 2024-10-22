@@ -6,6 +6,8 @@ import (
 	"net/url"
 
 	"code.cloudfoundry.org/korifi/api/repositories"
+	"code.cloudfoundry.org/korifi/model"
+	"code.cloudfoundry.org/korifi/tools"
 )
 
 const (
@@ -13,18 +15,18 @@ const (
 )
 
 type ProcessResponse struct {
-	GUID          string                     `json:"guid"`
-	Type          string                     `json:"type"`
-	Command       string                     `json:"command"`
-	Instances     int                        `json:"instances"`
-	MemoryMB      int64                      `json:"memory_in_mb"`
-	DiskQuotaMB   int64                      `json:"disk_in_mb"`
-	HealthCheck   ProcessResponseHealthCheck `json:"health_check"`
-	Relationships Relationships              `json:"relationships"`
-	Metadata      Metadata                   `json:"metadata"`
-	CreatedAt     string                     `json:"created_at"`
-	UpdatedAt     string                     `json:"updated_at"`
-	Links         ProcessLinks               `json:"links"`
+	GUID          string                             `json:"guid"`
+	Type          string                             `json:"type"`
+	Command       string                             `json:"command"`
+	Instances     int32                              `json:"instances"`
+	MemoryMB      int64                              `json:"memory_in_mb"`
+	DiskQuotaMB   int64                              `json:"disk_in_mb"`
+	HealthCheck   ProcessResponseHealthCheck         `json:"health_check"`
+	Relationships map[string]model.ToOneRelationship `json:"relationships"`
+	Metadata      Metadata                           `json:"metadata"`
+	CreatedAt     string                             `json:"created_at"`
+	UpdatedAt     string                             `json:"updated_at"`
+	Links         ProcessLinks                       `json:"links"`
 }
 
 type ProcessLinks struct {
@@ -42,8 +44,8 @@ type ProcessResponseHealthCheck struct {
 
 type ProcessResponseHealthCheckData struct {
 	Type              string `json:"-"`
-	Timeout           int64  `json:"timeout"`
-	InvocationTimeout int64  `json:"invocation_timeout"`
+	Timeout           int32  `json:"timeout"`
+	InvocationTimeout int32  `json:"invocation_timeout"`
 	HTTPEndpoint      string `json:"endpoint"`
 }
 
@@ -51,11 +53,11 @@ type ProcessResponseHealthCheckData struct {
 type respAlias ProcessResponseHealthCheckData
 
 func (h ProcessResponseHealthCheckData) MarshalJSON() ([]byte, error) {
-	timeout := &(h.Timeout)
+	timeout := tools.PtrTo(h.Timeout)
 	if *timeout == 0 {
 		timeout = nil
 	}
-	invocationTimeout := &(h.InvocationTimeout)
+	invocationTimeout := tools.PtrTo(h.InvocationTimeout)
 	if *invocationTimeout == 0 {
 		invocationTimeout = nil
 	}
@@ -82,18 +84,18 @@ func (h ProcessResponseHealthCheckData) MarshalJSON() ([]byte, error) {
 }
 
 type ProcessResponseHTTPHealthCheckData struct {
-	Timeout           *int64 `json:"timeout"`
-	InvocationTimeout *int64 `json:"invocation_timeout"`
+	Timeout           *int32 `json:"timeout"`
+	InvocationTimeout *int32 `json:"invocation_timeout"`
 	HTTPEndpoint      string `json:"endpoint"`
 }
 
 type ProcessResponsePortHealthCheckData struct {
-	Timeout           *int64 `json:"timeout"`
-	InvocationTimeout *int64 `json:"invocation_timeout"`
+	Timeout           *int32 `json:"timeout"`
+	InvocationTimeout *int32 `json:"invocation_timeout"`
 }
 
 type ProcessResponseProcessHealthCheckData struct {
-	Timeout *int64 `json:"timeout"`
+	Timeout *int32 `json:"timeout"`
 }
 
 func ForProcess(responseProcess repositories.ProcessRecord, baseURL url.URL) ProcessResponse {
@@ -113,13 +115,7 @@ func ForProcess(responseProcess repositories.ProcessRecord, baseURL url.URL) Pro
 				HTTPEndpoint:      responseProcess.HealthCheck.Data.HTTPEndpoint,
 			},
 		},
-		Relationships: map[string]Relationship{
-			"app": {
-				Data: &RelationshipData{
-					GUID: responseProcess.AppGUID,
-				},
-			},
-		},
+		Relationships: ForRelationships(responseProcess.Relationships()),
 		Metadata: Metadata{
 			Labels:      responseProcess.Labels,
 			Annotations: responseProcess.Annotations,

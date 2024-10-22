@@ -27,14 +27,10 @@ type ControllerConfig struct {
 	MaxRetainedPackagesPerApp        int                `yaml:"maxRetainedPackagesPerApp"`
 	MaxRetainedBuildsPerApp          int                `yaml:"maxRetainedBuildsPerApp"`
 	LogLevel                         zapcore.Level      `yaml:"logLevel"`
-	SpaceFinalizerAppDeletionTimeout *int64             `yaml:"spaceFinalizerAppDeletionTimeout"`
+	SpaceFinalizerAppDeletionTimeout *int32             `yaml:"spaceFinalizerAppDeletionTimeout"`
 
 	// job-task-runner
-	JobTTL                                     string `yaml:"jobTTL"`
-	JobTaskRunnerTemporarySetPodSeccompProfile bool   `yaml:"jobTaskRunnerTemporarySetPodSeccompProfile"`
-
-	// statefulset-runner
-	StatefulsetRunnerTemporarySetPodSeccompProfile bool `yaml:"statefulsetRunnerTemporarySetPodSeccompProfile"`
+	JobTTL string `yaml:"jobTTL"`
 
 	// kpack-image-builder
 	ClusterBuilderName        string     `yaml:"clusterBuilderName"`
@@ -43,12 +39,15 @@ type ControllerConfig struct {
 	ContainerRepositoryPrefix string     `yaml:"containerRepositoryPrefix"`
 	ContainerRegistryType     string     `yaml:"containerRegistryType"`
 	Networking                Networking `yaml:"networking"`
+
+	ExperimentalManagedServicesEnabled bool `yaml:"experimentalManagedServicesEnabled"`
+	TrustInsecureServiceBrokers        bool `yaml:"trustInsecureServiceBrokers"`
 }
 
 type CFProcessDefaults struct {
 	MemoryMB    int64  `yaml:"memoryMB"`
 	DiskQuotaMB int64  `yaml:"diskQuotaMB"`
-	Timeout     *int64 `yaml:"timeout"`
+	Timeout     *int32 `yaml:"timeout"`
 }
 
 type CFStagingResources struct {
@@ -64,7 +63,7 @@ type Networking struct {
 
 const (
 	defaultTaskTTL            = 30 * 24 * time.Hour
-	defaultTimeout      int64 = 60
+	defaultTimeout      int32 = 60
 	defaultJobTTL             = 24 * time.Hour
 	defaultBuildCacheMB       = 2048
 )

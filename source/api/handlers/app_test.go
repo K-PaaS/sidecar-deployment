@@ -39,6 +39,7 @@ var _ = Describe("App", func() {
 		domainRepo       *fake.CFDomainRepository
 		spaceRepo        *fake.CFSpaceRepository
 		packageRepo      *fake.CFPackageRepository
+		podRepo          *fake.PodRepository
 		requestValidator *fake.RequestValidator
 		req              *http.Request
 
@@ -55,6 +56,7 @@ var _ = Describe("App", func() {
 		spaceRepo = new(fake.CFSpaceRepository)
 		packageRepo = new(fake.CFPackageRepository)
 		requestValidator = new(fake.RequestValidator)
+		podRepo = new(fake.PodRepository)
 
 		apiHandler := NewApp(
 			*serverURL,
@@ -67,6 +69,7 @@ var _ = Describe("App", func() {
 			spaceRepo,
 			packageRepo,
 			requestValidator,
+			podRepo,
 		)
 
 		appRecord = repositories.AppRecord{
@@ -74,6 +77,7 @@ var _ = Describe("App", func() {
 			Name:        "test-app",
 			SpaceGUID:   spaceGUID,
 			State:       "STOPPED",
+			Revision:    "0",
 			DropletGUID: "test-droplet-guid",
 			Lifecycle: repositories.Lifecycle{
 				Type: "buildpack",
@@ -367,7 +371,7 @@ var _ = Describe("App", func() {
 				requestValidator.DecodeAndValidateURLValuesStub = decodeAndValidateURLValuesStub(&payloads.AppList{
 					Names:      "a1,a2",
 					GUIDs:      "g1,g2",
-					SpaceGuids: "s1,s2",
+					SpaceGUIDs: "s1,s2",
 				})
 			})
 
@@ -376,7 +380,7 @@ var _ = Describe("App", func() {
 				_, _, message := appRepo.ListAppsArgsForCall(0)
 
 				Expect(message.Names).To(ConsistOf("a1", "a2"))
-				Expect(message.SpaceGuids).To(ConsistOf("s1", "s2"))
+				Expect(message.SpaceGUIDs).To(ConsistOf("s1", "s2"))
 				Expect(message.Guids).To(ConsistOf("g1", "g2"))
 			})
 		})
@@ -938,17 +942,17 @@ var _ = Describe("App", func() {
 
 	Describe("GET /v3/apps/:guid/processes/{type}", func() {
 		BeforeEach(func() {
-			processRepo.GetProcessByAppTypeAndSpaceReturns(repositories.ProcessRecord{
+			processRepo.ListProcessesReturns([]repositories.ProcessRecord{{
 				GUID:    "process-1-guid",
 				Command: "bundle exec rackup config.ru -p $PORT -o 0.0.0.0",
-			}, nil)
+			}}, nil)
 
 			req = createHttpRequest("GET", "/v3/apps/"+appGUID+"/processes/web", nil)
 		})
 
 		It("returns a process", func() {
-			Expect(processRepo.GetProcessByAppTypeAndSpaceCallCount()).To(Equal(1))
-			_, actualAuthInfo, _, _, _ := processRepo.GetProcessByAppTypeAndSpaceArgsForCall(0)
+			Expect(processRepo.ListProcessesCallCount()).To(Equal(1))
+			_, actualAuthInfo, _ := processRepo.ListProcessesArgsForCall(0)
 			Expect(actualAuthInfo).To(Equal(authInfo))
 
 			Expect(rr).To(HaveHTTPStatus(http.StatusOK))
@@ -982,7 +986,7 @@ var _ = Describe("App", func() {
 
 		When("there is an error fetching processes", func() {
 			BeforeEach(func() {
-				processRepo.GetProcessByAppTypeAndSpaceReturns(repositories.ProcessRecord{}, errors.New("some-error"))
+				processRepo.ListProcessesReturns([]repositories.ProcessRecord{}, errors.New("some-error"))
 			})
 
 			It("return a process unknown error", func() {
@@ -993,6 +997,7 @@ var _ = Describe("App", func() {
 
 	Describe("GET /v3/apps/:guid/processes/{type}/stats", func() {
 		BeforeEach(func() {
+			processRepo.ListProcessesReturns([]repositories.ProcessRecord{{}}, nil)
 			processStats.FetchStatsReturns([]actions.PodStatsRecord{
 				{
 					Type:     "web",
@@ -1038,7 +1043,7 @@ var _ = Describe("App", func() {
 
 		When("there is an error fetching the process", func() {
 			BeforeEach(func() {
-				processRepo.GetProcessByAppTypeAndSpaceReturns(repositories.ProcessRecord{}, errors.New("some-error"))
+				processRepo.ListProcessesReturns([]repositories.ProcessRecord{}, errors.New("some-error"))
 			})
 
 			It("return a process unknown error", func() {
@@ -1077,7 +1082,7 @@ var _ = Describe("App", func() {
 			}, nil)
 
 			payload = &payloads.ProcessScale{
-				Instances: tools.PtrTo(5),
+				Instances: tools.PtrTo[int32](5),
 				MemoryMB:  tools.PtrTo[int64](256),
 				DiskMB:    tools.PtrTo[int64](1024),
 			}
@@ -1111,7 +1116,7 @@ var _ = Describe("App", func() {
 				GUID:      "process-1-guid",
 				SpaceGUID: spaceGUID,
 				ProcessScaleValues: repositories.ProcessScaleValues{
-					Instances: tools.PtrTo(5),
+					Instances: tools.PtrTo[int32](5),
 					MemoryMB:  tools.PtrTo[int64](256),
 					DiskMB:    tools.PtrTo[int64](1024),
 				},
@@ -1769,6 +1774,90 @@ var _ = Describe("App", func() {
 					MatchJSONPath("$.errors[0].title", Equal("CF-ResourceNotFound")),
 					MatchJSONPath("$.errors[0].code", BeEquivalentTo(10010)),
 				)))
+			})
+		})
+	})
+
+	Describe("DELETE /v3/apps/:guid/processes/:process/instances/:instance", func() {
+		BeforeEach(func() {
+			processRepo.ListProcessesReturns([]repositories.ProcessRecord{
+				{
+					GUID:             "process-1-guid",
+					SpaceGUID:        spaceGUID,
+					AppGUID:          appGUID,
+					Type:             "web",
+					DesiredInstances: 1,
+				},
+			}, nil)
+			req = createHttpRequest("DELETE", "/v3/apps/"+appGUID+"/processes/web/instances/0", nil)
+		})
+
+		It("restarts the instance", func() {
+			Expect(rr).To(HaveHTTPStatus(http.StatusNoContent))
+			Expect(podRepo.DeletePodCallCount()).To(Equal(1))
+			_, actualAuthInfo, actualAppRevision, actualProcess, actualInstanceID := podRepo.DeletePodArgsForCall(0)
+			Expect(actualAuthInfo).To(Equal(authInfo))
+			Expect(actualAppRevision).To(Equal("0"))
+			Expect(actualProcess.AppGUID).To(Equal(appGUID))
+			Expect(actualProcess.SpaceGUID).To(Equal(spaceGUID))
+			Expect(actualProcess.Type).To(Equal("web"))
+			Expect(actualInstanceID).To(Equal("0"))
+		})
+		When("the process does not exist", func() {
+			BeforeEach(func() {
+				req = createHttpRequest("DELETE", "/v3/apps/"+appGUID+"/processes/boom/instances/0", nil)
+			})
+			It("returns an error", func() {
+				expectNotFoundError("Process")
+			})
+		})
+		When("the instance does not exist", func() {
+			BeforeEach(func() {
+				req = createHttpRequest("DELETE", "/v3/apps/"+appGUID+"/processes/web/instances/5", nil)
+			})
+			It("returns an error", func() {
+				expectNotFoundError("Instance 5 of process web")
+			})
+		})
+		When("the app has a worker process", func() {
+			BeforeEach(func() {
+				processRepo.ListProcessesReturns([]repositories.ProcessRecord{
+					{
+						GUID:             "process-1-guid",
+						SpaceGUID:        spaceGUID,
+						AppGUID:          appGUID,
+						Type:             "web",
+						DesiredInstances: 1,
+					},
+					{
+						GUID:             "process-2-guid",
+						SpaceGUID:        spaceGUID,
+						AppGUID:          appGUID,
+						Type:             "worker",
+						DesiredInstances: 2,
+					},
+				}, nil)
+				req = createHttpRequest("DELETE", "/v3/apps/"+appGUID+"/processes/worker/instances/0", nil)
+			})
+
+			It("restarts the instance", func() {
+				Expect(rr).To(HaveHTTPStatus(http.StatusNoContent))
+				Expect(podRepo.DeletePodCallCount()).To(Equal(1))
+				_, actualAuthInfo, actualAppRevision, actualProcess, actualInstanceID := podRepo.DeletePodArgsForCall(0)
+				Expect(actualAuthInfo).To(Equal(authInfo))
+				Expect(actualAppRevision).To(Equal("0"))
+				Expect(actualProcess.AppGUID).To(Equal(appGUID))
+				Expect(actualProcess.SpaceGUID).To(Equal(spaceGUID))
+				Expect(actualProcess.Type).To(Equal("worker"))
+				Expect(actualInstanceID).To(Equal("0"))
+			})
+		})
+		When("The app does not exist", func() {
+			BeforeEach(func() {
+				appRepo.GetAppReturns(repositories.AppRecord{}, errors.New("App not found"))
+			})
+			It("returns an error", func() {
+				expectNotFoundError("App")
 			})
 		})
 	})

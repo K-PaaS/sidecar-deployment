@@ -21,6 +21,7 @@ import (
 	"code.cloudfoundry.org/korifi/api/payloads/validation"
 	"code.cloudfoundry.org/korifi/api/repositories"
 	"code.cloudfoundry.org/korifi/api/repositories/conditions"
+	"code.cloudfoundry.org/korifi/api/repositories/relationships"
 	"code.cloudfoundry.org/korifi/api/routing"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/tools"
@@ -127,14 +128,14 @@ func main() {
 		privilegedCRClient,
 		userClientFactory,
 		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFOrg, korifiv1alpha1.CFOrgList](conditionTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFOrg, korifiv1alpha1.CFOrg, korifiv1alpha1.CFOrgList](conditionTimeout),
 	)
 	spaceRepo := repositories.NewSpaceRepo(
 		namespaceRetriever,
 		orgRepo,
 		userClientFactory,
 		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFSpace, korifiv1alpha1.CFSpaceList](conditionTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFSpace, korifiv1alpha1.CFSpace, korifiv1alpha1.CFSpaceList](conditionTimeout),
 	)
 	processRepo := repositories.NewProcessRepo(
 		namespaceRetriever,
@@ -148,7 +149,7 @@ func main() {
 		namespaceRetriever,
 		userClientFactory,
 		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFApp, korifiv1alpha1.CFAppList](conditionTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFApp, korifiv1alpha1.CFApp, korifiv1alpha1.CFAppList](conditionTimeout),
 	)
 	dropletRepo := repositories.NewDropletRepo(
 		userClientFactory,
@@ -168,10 +169,16 @@ func main() {
 	deploymentRepo := repositories.NewDeploymentRepo(
 		userClientFactory,
 		namespaceRetriever,
+		nsPermissions,
+		repositories.NewDeploymentSorter(),
 	)
 	buildRepo := repositories.NewBuildRepo(
 		namespaceRetriever,
 		userClientFactory,
+	)
+	logRepo := repositories.NewLogRepo(
+		userClientFactory,
+		repositories.DefaultLogStreamer,
 	)
 	runnerInfoRepo := repositories.NewRunnerInfoRepository(
 		userClientFactory,
@@ -184,19 +191,19 @@ func main() {
 		nsPermissions,
 		toolsregistry.NewRepositoryCreator(cfg.ContainerRegistryType),
 		cfg.ContainerRepositoryPrefix,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFPackage, korifiv1alpha1.CFPackageList](conditionTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFPackage, korifiv1alpha1.CFPackage, korifiv1alpha1.CFPackageList](conditionTimeout),
 	)
 	serviceInstanceRepo := repositories.NewServiceInstanceRepo(
 		namespaceRetriever,
 		userClientFactory,
 		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFServiceInstance, korifiv1alpha1.CFServiceInstanceList](conditionTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFServiceInstance, korifiv1alpha1.CFServiceInstance, korifiv1alpha1.CFServiceInstanceList](conditionTimeout),
 	)
 	serviceBindingRepo := repositories.NewServiceBindingRepo(
 		namespaceRetriever,
 		userClientFactory,
 		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFServiceBinding, korifiv1alpha1.CFServiceBindingList](conditionTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFServiceBinding, korifiv1alpha1.CFServiceBinding, korifiv1alpha1.CFServiceBindingList](conditionTimeout),
 	)
 	buildpackRepo := repositories.NewBuildpackRepository(cfg.BuilderName,
 		userClientFactory,
@@ -223,9 +230,12 @@ func main() {
 		userClientFactory,
 		namespaceRetriever,
 		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFTask, korifiv1alpha1.CFTaskList](conditionTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFTask, korifiv1alpha1.CFTask, korifiv1alpha1.CFTaskList](conditionTimeout),
 	)
 	metricsRepo := repositories.NewMetricsRepo(userClientFactory)
+	serviceBrokerRepo := repositories.NewServiceBrokerRepo(userClientFactory, cfg.RootNamespace)
+	serviceOfferingRepo := repositories.NewServiceOfferingRepo(userClientFactory, cfg.RootNamespace, serviceBrokerRepo)
+	servicePlanRepo := repositories.NewServicePlanRepo(userClientFactory, cfg.RootNamespace, orgRepo)
 
 	processStats := actions.NewProcessStats(processRepo, appRepo, metricsRepo)
 	manifest := actions.NewManifest(
@@ -235,7 +245,6 @@ func main() {
 		manifest.NewNormalizer(cfg.DefaultDomainName),
 		manifest.NewApplier(appRepo, domainRepo, processRepo, routeRepo, serviceInstanceRepo, serviceBindingRepo),
 	)
-	appLogs := actions.NewAppLogs(appRepo, buildRepo, podRepo)
 
 	requestValidator := validation.NewDefaultDecoderValidator()
 
@@ -246,6 +255,10 @@ func main() {
 		middleware.HTTPLogging,
 		chiMiddlewares.StripSlashes,
 	)
+
+	if !cfg.ExperimentalManagedServicesEnabled {
+		routerBuilder.UseMiddleware(middleware.DisableManagedServices)
+	}
 
 	authInfoParser := authorization.NewInfoParser()
 	routerBuilder.UseAuthMiddleware(
@@ -259,6 +272,12 @@ func main() {
 			cfg.RootNamespace,
 			cache.NewExpiring(),
 		),
+	)
+
+	relationshipsRepo := relationships.NewResourseRelationshipsRepo(
+		serviceOfferingRepo,
+		serviceBrokerRepo,
+		servicePlanRepo,
 	)
 
 	apiHandlers := []routing.Routable{
@@ -280,6 +299,7 @@ func main() {
 			spaceRepo,
 			packageRepo,
 			requestValidator,
+			podRepo,
 		),
 		handlers.NewRoute(
 			*serverURL,
@@ -318,6 +338,7 @@ func main() {
 			processRepo,
 			processStats,
 			requestValidator,
+			podRepo,
 		),
 		handlers.NewDomain(
 			*serverURL,
@@ -334,20 +355,27 @@ func main() {
 		handlers.NewJob(
 			*serverURL,
 			map[string]handlers.DeletionRepository{
-				handlers.OrgDeleteJobType:    orgRepo,
-				handlers.SpaceDeleteJobType:  spaceRepo,
-				handlers.AppDeleteJobType:    appRepo,
-				handlers.RouteDeleteJobType:  routeRepo,
-				handlers.DomainDeleteJobType: domainRepo,
-				handlers.RoleDeleteJobType:   roleRepo,
+				handlers.OrgDeleteJobType:                    orgRepo,
+				handlers.SpaceDeleteJobType:                  spaceRepo,
+				handlers.AppDeleteJobType:                    appRepo,
+				handlers.RouteDeleteJobType:                  routeRepo,
+				handlers.DomainDeleteJobType:                 domainRepo,
+				handlers.RoleDeleteJobType:                   roleRepo,
+				handlers.ServiceBrokerDeleteJobType:          serviceBrokerRepo,
+				handlers.ManagedServiceInstanceDeleteJobType: serviceInstanceRepo,
+			},
+			map[string]handlers.StateRepository{
+				handlers.ServiceBrokerCreateJobType:          serviceBrokerRepo,
+				handlers.ServiceBrokerUpdateJobType:          serviceBrokerRepo,
+				handlers.ManagedServiceInstanceCreateJobType: serviceInstanceRepo,
 			},
 			500*time.Millisecond,
 		),
 		handlers.NewLogCache(
+			requestValidator,
 			appRepo,
 			buildRepo,
-			appLogs,
-			requestValidator,
+			logRepo,
 		),
 		handlers.NewOrg(
 			*serverURL,
@@ -385,6 +413,7 @@ func main() {
 			serviceInstanceRepo,
 			spaceRepo,
 			requestValidator,
+			relationshipsRepo,
 		),
 		handlers.NewServiceBinding(
 			*serverURL,
@@ -401,6 +430,23 @@ func main() {
 		),
 		handlers.NewOAuth(
 			*serverURL,
+		),
+		handlers.NewServiceBroker(
+			*serverURL,
+			serviceBrokerRepo,
+			requestValidator,
+		),
+		handlers.NewServiceOffering(
+			*serverURL,
+			requestValidator,
+			serviceOfferingRepo,
+			serviceBrokerRepo,
+		),
+		handlers.NewServicePlan(
+			*serverURL,
+			requestValidator,
+			servicePlanRepo,
+			relationshipsRepo,
 		),
 	}
 	for _, handler := range apiHandlers {

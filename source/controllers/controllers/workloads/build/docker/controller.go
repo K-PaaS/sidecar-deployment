@@ -22,7 +22,6 @@ import (
 	"strings"
 
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
-	"code.cloudfoundry.org/korifi/controllers/controllers/shared"
 	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/build"
 	"code.cloudfoundry.org/korifi/tools/image"
 	"code.cloudfoundry.org/korifi/tools/k8s"
@@ -70,6 +69,7 @@ type dockerBuildReconciler struct {
 func (r *dockerBuildReconciler) SetupWithManager(mgr ctrl.Manager) *builder.Builder {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&korifiv1alpha1.CFBuild{}).
+		Named("docker_build").
 		WithEventFilter(predicate.NewPredicateFuncs(dockerBuildFilter))
 }
 
@@ -92,8 +92,9 @@ func (r *dockerBuildReconciler) ReconcileBuild(
 	cfPackage *korifiv1alpha1.CFPackage,
 ) (ctrl.Result, error) {
 	log := logr.FromContextOrDiscard(ctx)
-	succeededStatus := shared.GetConditionOrSetAsUnknown(&cfBuild.Status.Conditions, korifiv1alpha1.SucceededConditionType, cfBuild.Generation)
-	if succeededStatus != metav1.ConditionUnknown {
+
+	succeededStatus := meta.FindStatusCondition(cfBuild.Status.Conditions, korifiv1alpha1.SucceededConditionType)
+	if succeededStatus != nil {
 		log.Info("build status indicates completion", "status", succeededStatus)
 		return ctrl.Result{}, nil
 	}

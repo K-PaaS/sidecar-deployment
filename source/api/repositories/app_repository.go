@@ -4,7 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -13,8 +14,11 @@ import (
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/env"
 	"code.cloudfoundry.org/korifi/controllers/webhooks/validation"
+	"code.cloudfoundry.org/korifi/tools"
 	"code.cloudfoundry.org/korifi/tools/k8s"
 
+	"github.com/BooleanCat/go-functional/v2/it"
+	"github.com/BooleanCat/go-functional/v2/it/itx"
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -22,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -76,6 +81,16 @@ type AppRecord struct {
 	envSecretName         string
 	vcapServiceSecretName string
 	vcapAppSecretName     string
+}
+
+func (a AppRecord) GetResourceType() string {
+	return AppResourceType
+}
+
+func (a AppRecord) Relationships() map[string]string {
+	return map[string]string{
+		"space": a.SpaceGUID,
+	}
 }
 
 type DesiredState string
@@ -171,22 +186,17 @@ type SetAppDesiredStateMessage struct {
 type ListAppsMessage struct {
 	Names         []string
 	Guids         []string
-	SpaceGuids    []string
+	SpaceGUIDs    []string
 	LabelSelector string
 }
 
-type byName []AppRecord
-
-func (a byName) Len() int {
-	return len(a)
+func (m *ListAppsMessage) matchesNamespace(ns string) bool {
+	return tools.EmptyOrContains(m.SpaceGUIDs, ns)
 }
 
-func (a byName) Less(i, j int) bool {
-	return a[i].Name < a[j].Name
-}
-
-func (a byName) Swap(i, j int) {
-	a[i], a[j] = a[j], a[i]
+func (m *ListAppsMessage) matches(cfApp korifiv1alpha1.CFApp) bool {
+	return tools.EmptyOrContains(m.Names, cfApp.Spec.DisplayName) &&
+		tools.EmptyOrContains(m.Guids, cfApp.Name)
 }
 
 func (f *AppRepo) GetApp(ctx context.Context, authInfo authorization.Info, appGUID string) (AppRecord, error) {
@@ -200,42 +210,18 @@ func (f *AppRepo) GetApp(ctx context.Context, authInfo authorization.Info, appGU
 		return AppRecord{}, fmt.Errorf("get-app failed to build user client: %w", err)
 	}
 
-	app := korifiv1alpha1.CFApp{}
-	err = userClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: appGUID}, &app)
+	app := &korifiv1alpha1.CFApp{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: ns,
+			Name:      appGUID,
+		},
+	}
+	err = userClient.Get(ctx, client.ObjectKeyFromObject(app), app)
 	if err != nil {
 		return AppRecord{}, fmt.Errorf("failed to get app: %w", apierrors.FromK8sError(err, AppResourceType))
 	}
 
-	return cfAppToAppRecord(app), nil
-}
-
-func (f *AppRepo) GetAppByNameAndSpace(ctx context.Context, authInfo authorization.Info, appName string, spaceGUID string) (AppRecord, error) {
-	userClient, err := f.userClientFactory.BuildClient(authInfo)
-	if err != nil {
-		return AppRecord{}, fmt.Errorf("get-app failed to build user client: %w", err)
-	}
-
-	appList := new(korifiv1alpha1.CFAppList)
-	err = userClient.List(ctx, appList, client.InNamespace(spaceGUID))
-	if err != nil {
-		return AppRecord{}, apierrors.FromK8sError(fmt.Errorf("get app: failed to list apps: %w", err), SpaceResourceType)
-	}
-
-	var matchingApps []korifiv1alpha1.CFApp
-	for _, app := range appList.Items {
-		if app.Spec.DisplayName == appName {
-			matchingApps = append(matchingApps, app)
-		}
-	}
-
-	if len(matchingApps) == 0 {
-		return AppRecord{}, apierrors.NewNotFoundError(fmt.Errorf("app %q in space %q not found", appName, spaceGUID), AppResourceType)
-	}
-	if len(matchingApps) > 1 {
-		return AppRecord{}, fmt.Errorf("duplicate instances of app %q in space %q", appName, spaceGUID)
-	}
-
-	return cfAppToAppRecord(matchingApps[0]), nil
+	return cfAppToAppRecord(*app), nil
 }
 
 func (f *AppRepo) CreateApp(ctx context.Context, authInfo authorization.Info, appCreateMessage CreateAppMessage) (AppRecord, error) {
@@ -256,14 +242,21 @@ func (f *AppRepo) CreateApp(ctx context.Context, authInfo authorization.Info, ap
 		return AppRecord{}, apierrors.FromK8sError(err, AppResourceType)
 	}
 
-	_, err = f.CreateOrPatchAppEnvVars(ctx, authInfo, CreateOrPatchAppEnvVarsMessage{
-		AppGUID:              cfApp.Name,
-		AppEtcdUID:           cfApp.UID,
-		SpaceGUID:            cfApp.Namespace,
-		EnvironmentVariables: appCreateMessage.EnvironmentVariables,
-	})
+	envSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      GenerateEnvSecretName(cfApp.Name),
+			Namespace: cfApp.Namespace,
+			Labels: map[string]string{
+				CFAppGUIDLabel: cfApp.Name,
+			},
+		},
+		StringData: appCreateMessage.EnvironmentVariables,
+	}
+	_ = controllerutil.SetOwnerReference(&cfApp, envSecret, scheme.Scheme)
+
+	err = userClient.Create(ctx, envSecret)
 	if err != nil {
-		return AppRecord{}, err
+		return AppRecord{}, apierrors.FromK8sError(err, AppResourceType)
 	}
 
 	return cfAppToAppRecord(cfApp), nil
@@ -275,46 +268,44 @@ func (f *AppRepo) PatchApp(ctx context.Context, authInfo authorization.Info, app
 		return AppRecord{}, fmt.Errorf("failed to build user client: %w", err)
 	}
 
-	app := new(korifiv1alpha1.CFApp)
-	err = userClient.Get(ctx, client.ObjectKey{Namespace: appPatchMessage.SpaceGUID, Name: appPatchMessage.AppGUID}, app)
-	if err != nil {
-		return AppRecord{}, apierrors.FromK8sError(err, AppResourceType)
+	cfApp := &korifiv1alpha1.CFApp{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: appPatchMessage.SpaceGUID,
+			Name:      appPatchMessage.AppGUID,
+		},
 	}
 
-	err = k8s.PatchResource(ctx, userClient, app, func() {
-		appPatchMessage.Apply(app)
+	err = PatchResource(ctx, userClient, cfApp, func() {
+		appPatchMessage.Apply(cfApp)
 	})
 	if err != nil {
 		return AppRecord{}, apierrors.FromK8sError(err, AppResourceType)
 	}
 
-	_, err = f.CreateOrPatchAppEnvVars(ctx, authInfo, CreateOrPatchAppEnvVarsMessage{
-		AppGUID:              app.Name,
-		AppEtcdUID:           app.UID,
-		SpaceGUID:            app.Namespace,
-		EnvironmentVariables: appPatchMessage.EnvironmentVariables,
+	envSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: cfApp.Namespace,
+			Name:      cfApp.Spec.EnvSecretName,
+		},
+	}
+	err = PatchResource(ctx, userClient, envSecret, func() {
+		if envSecret.Data == nil {
+			envSecret.Data = map[string][]byte{}
+		}
+		for k, v := range appPatchMessage.EnvironmentVariables {
+			envSecret.Data[k] = []byte(v)
+		}
 	})
 	if err != nil {
-		return AppRecord{}, err
+		return AppRecord{}, apierrors.FromK8sError(err, AppResourceType)
 	}
-
-	return cfAppToAppRecord(*app), nil
+	return cfAppToAppRecord(*cfApp), nil
 }
 
 func (f *AppRepo) ListApps(ctx context.Context, authInfo authorization.Info, message ListAppsMessage) ([]AppRecord, error) {
-	nsList, err := f.namespacePermissions.GetAuthorizedSpaceNamespaces(ctx, authInfo)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list namespaces for spaces with user role bindings: %w", err)
-	}
-
 	userClient, err := f.userClientFactory.BuildClient(authInfo)
 	if err != nil {
 		return []AppRecord{}, fmt.Errorf("failed to build user client: %w", err)
-	}
-
-	preds := []func(korifiv1alpha1.CFApp) bool{
-		SetPredicate(message.Names, func(s korifiv1alpha1.CFApp) string { return s.Spec.DisplayName }),
-		SetPredicate(message.Guids, func(s korifiv1alpha1.CFApp) string { return s.Name }),
 	}
 
 	labelSelector, err := labels.Parse(message.LabelSelector)
@@ -322,13 +313,14 @@ func (f *AppRepo) ListApps(ctx context.Context, authInfo authorization.Info, mes
 		return []AppRecord{}, apierrors.NewUnprocessableEntityError(err, "invalid label selector")
 	}
 
-	var filteredApps []korifiv1alpha1.CFApp
-	spaceGUIDSet := NewSet(message.SpaceGuids...)
-	for ns := range nsList {
-		if len(spaceGUIDSet) > 0 && !spaceGUIDSet.Includes(ns) {
-			continue
-		}
+	authorisedSpaceNamespacesIter, err := authorizedSpaceNamespaces(ctx, authInfo, f.namespacePermissions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get namespaces for spaces with user role bindings: %w", err)
+	}
 
+	nsList := authorisedSpaceNamespacesIter.Filter(message.matchesNamespace).Collect()
+	var apps []korifiv1alpha1.CFApp
+	for _, ns := range nsList {
 		appList := &korifiv1alpha1.CFAppList{}
 		err := userClient.List(ctx, appList, client.InNamespace(ns), &client.ListOptions{LabelSelector: labelSelector})
 
@@ -339,24 +331,18 @@ func (f *AppRepo) ListApps(ctx context.Context, authInfo authorization.Info, mes
 			return []AppRecord{}, fmt.Errorf("failed to list apps in namespace %s: %w", ns, apierrors.FromK8sError(err, AppResourceType))
 		}
 
-		filteredApps = append(filteredApps, Filter(appList.Items, preds...)...)
+		apps = append(apps, appList.Items...)
 	}
-
-	appRecords := returnAppList(filteredApps)
 
 	// By default sort it by App.DisplayName
-	sort.Sort(byName(appRecords))
+	appRecords := slices.SortedFunc(
+		it.Map(itx.FromSlice(apps).Filter(message.matches), cfAppToAppRecord),
+		func(a, b AppRecord) int {
+			return strings.Compare(a.Name, b.Name)
+		},
+	)
 
 	return appRecords, nil
-}
-
-func returnAppList(appList []korifiv1alpha1.CFApp) []AppRecord {
-	appRecords := make([]AppRecord, 0, len(appList))
-
-	for _, app := range appList {
-		appRecords = append(appRecords, cfAppToAppRecord(app))
-	}
-	return appRecords
 }
 
 func (f *AppRepo) PatchAppEnvVars(ctx context.Context, authInfo authorization.Info, message PatchAppEnvVarsMessage) (AppEnvVarsRecord, error) {
@@ -372,7 +358,7 @@ func (f *AppRepo) PatchAppEnvVars(ctx context.Context, authInfo authorization.In
 		return AppEnvVarsRecord{}, fmt.Errorf("failed to build user client: %w", err)
 	}
 
-	_, err = controllerutil.CreateOrPatch(ctx, userClient, &secretObj, func() error {
+	err = PatchResource(ctx, userClient, &secretObj, func() {
 		if secretObj.Data == nil {
 			secretObj.Data = map[string][]byte{}
 		}
@@ -383,30 +369,11 @@ func (f *AppRepo) PatchAppEnvVars(ctx context.Context, authInfo authorization.In
 				secretObj.Data[k] = []byte(*v)
 			}
 		}
-		return nil
 	})
 	if err != nil {
 		return AppEnvVarsRecord{}, apierrors.FromK8sError(err, AppEnvResourceType)
 	}
 
-	return appEnvVarsSecretToRecord(secretObj), nil
-}
-
-func (f *AppRepo) CreateOrPatchAppEnvVars(ctx context.Context, authInfo authorization.Info, envVariables CreateOrPatchAppEnvVarsMessage) (AppEnvVarsRecord, error) {
-	secretObj := appEnvVarsRecordToSecret(envVariables)
-
-	userClient, err := f.userClientFactory.BuildClient(authInfo)
-	if err != nil {
-		return AppEnvVarsRecord{}, fmt.Errorf("failed to build user client: %w", err)
-	}
-
-	_, err = controllerutil.CreateOrPatch(ctx, userClient, &secretObj, func() error {
-		secretObj.StringData = envVariables.EnvironmentVariables
-		return nil
-	})
-	if err != nil {
-		return AppEnvVarsRecord{}, apierrors.FromK8sError(err, AppEnvResourceType)
-	}
 	return appEnvVarsSecretToRecord(secretObj), nil
 }
 
@@ -686,27 +653,6 @@ func cfAppToAppRecord(cfApp korifiv1alpha1.CFApp) AppRecord {
 	}
 }
 
-func appEnvVarsRecordToSecret(envVars CreateOrPatchAppEnvVarsMessage) corev1.Secret {
-	labels := make(map[string]string, 1)
-	labels[CFAppGUIDLabel] = envVars.AppGUID
-	return corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      GenerateEnvSecretName(envVars.AppGUID),
-			Namespace: envVars.SpaceGUID,
-			Labels:    labels,
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion: APIVersion,
-					Kind:       Kind,
-					Name:       envVars.AppGUID,
-					UID:        envVars.AppEtcdUID,
-				},
-			},
-		},
-		StringData: envVars.EnvironmentVariables,
-	}
-}
-
 func appEnvVarsSecretToRecord(envVars corev1.Secret) AppEnvVarsRecord {
 	appGUID := strings.TrimSuffix(envVars.Name, "-env")
 	return AppEnvVarsRecord{
@@ -718,9 +664,7 @@ func appEnvVarsSecretToRecord(envVars corev1.Secret) AppEnvVarsRecord {
 }
 
 func convertByteSliceValuesToStrings(inputMap map[string][]byte) map[string]string {
-	outputMap := make(map[string]string, len(inputMap))
-	for k, v := range inputMap {
-		outputMap[k] = string(v)
-	}
-	return outputMap
+	return maps.Collect(it.Map2(maps.All(inputMap), func(k string, v []byte) (string, string) {
+		return k, string(v)
+	}))
 }

@@ -37,7 +37,7 @@ type Destination struct {
 	// either the droplet port, or 8080 if no ports are available in the
 	// droplet
 	//+kubebuilder:validation:Optional
-	Port *int `json:"port,omitempty"`
+	Port *int32 `json:"port,omitempty"`
 	// A required reference to the CFApp that will receive traffic. The CFApp must be in the same namespace
 	AppRef v1.LocalObjectReference `json:"appRef"`
 	// The process type on the CFApp app which will receive traffic
@@ -124,4 +124,8 @@ func (r CFRoute) UniqueValidationErrorMessage() string {
 	}
 
 	return fmt.Sprintf("Route already exists with host '%s'%s for domain '%s'.", r.Spec.Host, pathDetails, r.Status.FQDN)
+}
+
+func (r *CFRoute) StatusConditions() *[]metav1.Condition {
+	return &r.Status.Conditions
 }

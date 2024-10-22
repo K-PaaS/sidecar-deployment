@@ -34,7 +34,9 @@ func (b *ReadyConditionBuilder) WithReason(reason string) *ReadyConditionBuilder
 }
 
 func (b *ReadyConditionBuilder) WithMessage(message string) *ReadyConditionBuilder {
-	b.message = message
+	if message != "" {
+		b.message = message
+	}
 	return b
 }
 
