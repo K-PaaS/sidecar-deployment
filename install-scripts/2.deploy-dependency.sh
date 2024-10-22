@@ -25,7 +25,7 @@ if [[ ${use_dockerhub} = true ]]; then
 elif [[ ${use_dockerhub} = false ]]; then
 	if [[ ${is_self_signed_certificate} == true ]]; then
 		echo "is_self_signed_certificate true"
-		cert_secret_name="${cert_secret_name}" yq e  '(select(.kind == "Deployment" and .metadata.name =="kpack-controller" )| .spec.template.spec += {"volumes": [{"name": "korifi-registry-ca-cert", "secret": {"defaultMode": 420, "secretName": env(cert_secret_name)}}] })' ../dependency/kpack/release-0.13.4.yaml | yq e  '(select(.kind == "Deployment" and .metadata.name =="kpack-controller" )| .spec.template.spec.containers[0] += {"volumeMounts": [{"mountPath": "/etc/ssl/certs/registry-ca.crt", "name": "korifi-registry-ca-cert", "readOnly": true, "subPath": "ca.crt"}]})' | kubectl apply -f -
+		cert_secret_name="${cert_secret_name}" yq e  '(select(.kind == "Deployment" and .metadata.name =="kpack-controller" )| .spec.template.spec += {"volumes": [{"name": "korifi-registry-ca-cert", "secret": {"defaultMode": 420, "secretName": env(cert_secret_name)}}] })' ../dependency/kpack/release-0.15.0.yaml | yq e  '(select(.kind == "Deployment" and .metadata.name =="kpack-controller" )| .spec.template.spec.containers[0] += {"volumeMounts": [{"mountPath": "/etc/ssl/certs/registry-ca.crt", "name": "korifi-registry-ca-cert", "readOnly": true, "subPath": "ca.crt"}]})' | kubectl apply -f -
 		## private_registry ca secret (option)
 		### kpack ca secret
 		kubectl --namespace kpack create secret generic $cert_secret_name \
