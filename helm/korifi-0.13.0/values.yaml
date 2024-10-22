@@ -1,0 +1,152 @@
+---
+adminUserName: null
+api:
+  apiServer:
+    internalPort: 9000
+    port: 0
+    timeouts:
+      idle: 900
+      read: 900
+      readHeader: 10
+      write: 900
+    url: ""
+  authProxy:
+    caCert: ""
+    host: ""
+  image: index.docker.io/cloudfoundry/korifi-api@sha256:6fb6216103da1ee9e4b057f10efeac59e3a7d255f49d3464529f8db9ac9c037e
+  include: true
+  infoConfig:
+    custom: {}
+    description: Korifi Cloud Foundry Environment
+    minCLIVersion: ""
+    name: korifi
+    recommendedCLIVersion: ""
+    supportAddress: https://www.cloudfoundry.org/technology/korifi/
+  lifecycle:
+    stack: cflinuxfs3
+    type: buildpack
+  nodeSelector: {}
+  replicas: 1
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 50m
+      memory: 100Mi
+  tolerations: []
+  userCertificateExpirationWarningDuration: 168h
+containerRegistryCACertSecret: null
+containerRegistrySecrets:
+- image-registry-credentials
+controllers:
+  extraVCAPApplicationValues: {}
+  image: index.docker.io/cloudfoundry/korifi-controllers@sha256:1be4912979cf36692c9867a920d62310579f0d8ce5043c2560079ac7f87ba107
+  maxRetainedBuildsPerApp: 5
+  maxRetainedPackagesPerApp: 5
+  namespaceLabels: {}
+  nodeSelector: {}
+  processDefaults:
+    diskQuotaMB: 1024
+    memoryMB: 1024
+  replicas: 1
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 50m
+      memory: 100Mi
+  taskTTL: 30d
+  tolerations: []
+  workloadsTLSSecret: korifi-workloads-ingress-cert
+debug: false
+defaultAppDomainName: null
+eksContainerRegistryRoleARN: ""
+experimental:
+  managedServices:
+    enabled: false
+    trustInsecureBrokers: false
+generateIngressCertificates: false
+helm:
+  hooksImage: alpine/k8s:1.25.2
+jobTaskRunner:
+  include: true
+  jobTTL: 24h
+  replicas: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 128Mi
+    requests:
+      cpu: 10m
+      memory: 64Mi
+kpackImageBuilder:
+  builderReadinessTimeout: 30s
+  builderRepository: ""
+  clusterBuilderName: ""
+  clusterStackBuildImage: paketobuildpacks/build-jammy-full
+  clusterStackID: io.buildpacks.stacks.jammy
+  clusterStackRunImage: paketobuildpacks/run-jammy-full
+  include: true
+  replicas: 1
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 50m
+      memory: 100Mi
+logLevel: info
+metadata:
+  annotations:
+    kbld.k14s.io/images: |
+      - origins:
+        - local:
+            path: /tmp/build/a625eeb5/korifi
+        - git:
+            dirty: true
+            remoteURL: https://github.com/cloudfoundry/korifi.git
+            sha: 68e8425c9a4faa5e76fd68d467e6f77be0e5f6a7
+        - tagged:
+            tags:
+            - latest
+            - 0.13.0
+        url: index.docker.io/cloudfoundry/korifi-api@sha256:6fb6216103da1ee9e4b057f10efeac59e3a7d255f49d3464529f8db9ac9c037e
+      - origins:
+        - local:
+            path: /tmp/build/a625eeb5/korifi
+        - git:
+            dirty: true
+            remoteURL: https://github.com/cloudfoundry/korifi.git
+            sha: 68e8425c9a4faa5e76fd68d467e6f77be0e5f6a7
+        - tagged:
+            tags:
+            - latest
+            - 0.13.0
+        url: index.docker.io/cloudfoundry/korifi-controllers@sha256:1be4912979cf36692c9867a920d62310579f0d8ce5043c2560079ac7f87ba107
+networking:
+  gatewayClass: null
+  gatewayInfrastructure: null
+  gatewayPorts:
+    http: 80
+    https: 443
+reconcilers:
+  build: kpack-image-builder
+  run: statefulset-runner
+rootNamespace: kpaas
+stagingRequirements:
+  buildCacheMB: 2048
+  diskMB: 0
+  memoryMB: 0
+statefulsetRunner:
+  include: true
+  replicas: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 128Mi
+    requests:
+      cpu: 10m
+      memory: 64Mi
+systemImagePullSecrets: []

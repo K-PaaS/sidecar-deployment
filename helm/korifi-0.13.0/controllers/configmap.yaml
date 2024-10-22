@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: korifi-controllers-config
+  namespace: {{ .Release.Namespace }}
+data:
+  config.yaml: |-
+    includeKpackImageBuilder: {{ .Values.kpackImageBuilder.include }}
+    includeJobTaskRunner: {{ .Values.jobTaskRunner.include }}
+    includeStatefulsetRunner: {{ .Values.statefulsetRunner.include }}
+    builderName: {{ .Values.reconcilers.build }}
+    runnerName: {{ .Values.reconcilers.run }}
+    cfProcessDefaults:
+      memoryMB: {{ .Values.controllers.processDefaults.memoryMB }}
+      diskQuotaMB: {{ .Values.controllers.processDefaults.diskQuotaMB }}
+    cfRootNamespace: {{ .Values.rootNamespace }}
+    {{- if not .Values.eksContainerRegistryRoleARN }}
+    {{- if .Values.containerRegistrySecrets }}
+    containerRegistrySecretNames:
+    {{- range .Values.containerRegistrySecrets }}
+    - {{ . | quote }}
+    {{- end }}
+    {{- else }}
+    containerRegistrySecretNames:
+    - {{ .Values.containerRegistrySecret | quote }}
+    {{- end }}
+    {{- end }}
+    taskTTL: {{ .Values.controllers.taskTTL }}
+    namespaceLabels:
+    {{- range $key, $value := .Values.controllers.namespaceLabels }}
+      {{ $key }}: {{ $value }}
+    {{- end }}
+    extraVCAPApplicationValues:
+    {{- $defaultDict := dict "cf_api" (printf "https://%s" .Values.api.apiServer.url) -}}
+    {{- range $key, $value := merge .Values.controllers.extraVCAPApplicationValues $defaultDict }}
+      {{ $key }}: {{ $value }}
+    {{- end }}
+    maxRetainedPackagesPerApp: {{ .Values.controllers.maxRetainedPackagesPerApp }}
+    maxRetainedBuildsPerApp: {{ .Values.controllers.maxRetainedBuildsPerApp }}
+    logLevel: {{ .Values.logLevel }}
+    {{- if .Values.kpackImageBuilder.include }}
+    clusterBuilderName: {{ .Values.kpackImageBuilder.clusterBuilderName | default "cf-kpack-cluster-builder" }}
+    builderReadinessTimeout: {{ required "builderReadinessTimeout is required" .Values.kpackImageBuilder.builderReadinessTimeout }}
+    containerRepositoryPrefix: {{ .Values.containerRepositoryPrefix | quote }}
+    builderServiceAccount: kpack-service-account
+    cfStagingResources:
+      buildCacheMB: {{ .Values.stagingRequirements.buildCacheMB }}
+      diskMB: {{ .Values.stagingRequirements.diskMB }}
+      memoryMB: {{ .Values.stagingRequirements.memoryMB }}
+    {{- if .Values.eksContainerRegistryRoleARN }}
+    containerRegistryType: "ECR"
+    {{- end }}
+    {{- end }}
+    {{- if .Values.jobTaskRunner.include }}
+    jobTTL: {{ required "jobTTL is required" .Values.jobTaskRunner.jobTTL }}
+    {{- end }}
+    networking:
+      gatewayNamespace: {{ .Release.Namespace }}-gateway
+      gatewayName: korifi
+    experimentalManagedServicesEnabled: {{ .Values.experimental.managedServices.enabled }}
+    trustInsecureServiceBrokers: {{ .Values.experimental.managedServices.trustInsecureBrokers }}
+

@@ -1,0 +1,274 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: korifi-controllers-manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  - secrets
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - delete
+  - get
+  - list
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - pods/log
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - serviceaccounts
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - deletecollection
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - httproutes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - httproutes/status
+  verbs:
+  - get
+- apiGroups:
+  - korifi.cloudfoundry.org
+  resources:
+  - appworkloads
+  - builderinfos
+  - buildworkloads
+  - cfbuilds
+  - cforgs
+  - cfpackages
+  - cfprocesses
+  - cfroutes
+  - cfservicebindings
+  - cfservicebrokers
+  - cfserviceinstances
+  - cfspaces
+  - cftasks
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - korifi.cloudfoundry.org
+  resources:
+  - appworkloads/finalizers
+  - builderinfos/finalizers
+  - buildworkloads/finalizers
+  - cfapps/finalizers
+  - cfbuilds/finalizers
+  - cfdomains/finalizers
+  - cforgs/finalizers
+  - cfprocesses/finalizers
+  - cfroutes/finalizers
+  - cfserviceinstances/finalizers
+  - cfspaces/finalizers
+  - cftasks/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - korifi.cloudfoundry.org
+  resources:
+  - appworkloads/status
+  - cfdomains/status
+  verbs:
+  - patch
+- apiGroups:
+  - korifi.cloudfoundry.org
+  resources:
+  - builderinfos/status
+  - cfapps/status
+  - cfbuilds/status
+  - cforgs/status
+  - cfpackages/finalizers
+  - cfpackages/status
+  - cfprocesses/status
+  - cfroutes/status
+  - cfservicebindings/status
+  - cfservicebrokers/status
+  - cfspaces/status
+  - cftasks/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - korifi.cloudfoundry.org
+  resources:
+  - buildworkloads/status
+  verbs:
+  - get
+- apiGroups:
+  - korifi.cloudfoundry.org
+  resources:
+  - cfapps
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - korifi.cloudfoundry.org
+  resources:
+  - cfdomains
+  - taskworkloads
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - korifi.cloudfoundry.org
+  resources:
+  - cfserviceinstances/status
+  verbs:
+  - atch
+  - get
+  - patch
+  - update
+- apiGroups:
+  - korifi.cloudfoundry.org
+  resources:
+  - cfserviceofferings
+  - cfserviceplans
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kpack.io
+  resources:
+  - clusterbuilders
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kpack.io
+  resources:
+  - clusterbuilders/status
+  verbs:
+  - get
+- apiGroups:
+  - metrics.k8s.io
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - create
+  - deletecollection
+- apiGroups:
+  - policy
+  resources:
+  - podsecuritypolicies
+  verbs:
+  - use
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - rolebindings
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - servicebinding.io
+  resources:
+  - servicebindings
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
