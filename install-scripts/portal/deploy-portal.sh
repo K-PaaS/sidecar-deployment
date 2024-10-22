@@ -6,6 +6,8 @@ HELM_CP_PORTAL_RESOURCE_NAME=cp-portal
 HELM_SIDECAR_NAMESPACE=sidecar
 HELM_SIDECAR_NAME=sidecar
 TARGET_CLUSTER=host-cluster #check cp-portal-deployment/script/cp-portal-vars.sh HOST_CLUSTER_NAME
+ORG_NAME=system
+SPACE_NAME=portal
 
 # SCRIPT START
 
@@ -125,6 +127,8 @@ EOF
 git submodule init
 git submodule update
 
+cf create-org $ORG_NAME
+cf create-space -o $ORG_NAME $SPACE_NAME
 
 # cf push
 #cd sidecar-portal-api
@@ -134,3 +138,5 @@ git submodule update
 #cf push --vars-file ../portal-variables.yml
 
 #cd ..
+
+#cf apps
