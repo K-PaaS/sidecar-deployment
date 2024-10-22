@@ -59,8 +59,8 @@ metadata:
         - git:
             dirty: true
             remoteURL: https://github.com/cloudfoundry/korifi.git
-            sha: 12840400bcf6f6d1f65ec3ef18c4d36dd4a19b29
-        url: index.docker.io/cloudfoundry/korifi-installer@sha256:59b86548500efdacac1869df76f377ac37e824d34616d23fe1846f888705ce6a
+            sha: 68e8425c9a4faa5e76fd68d467e6f77be0e5f6a7
+        url: index.docker.io/cloudfoundry/korifi-installer@sha256:3b58e010c29a95c9bff7ae492f3b0e9dfcb0c48438d4b096e023cb1d9d81f38b
   name: install-sidecar
   namespace: sidecar-installer
 spec:
@@ -112,13 +112,13 @@ spec:
             --set=kpackImageBuilder.clusterStackRunImage="paketobuildpacks/run-jammy-base" \
             --set=kpackImageBuilder.builderRepository="localregistry-docker-registry.default.svc.cluster.local:30050/kpack-builder" \
             --set=networking.gatewayClass="contour" \
+            --set=networking.gatewayPorts.http="32080" \
+            --set=networking.gatewayPorts.https="32443" \
+            --set=experimental.managedServices.enabled="true" \
+            --set=experimental.managedServices.trustInsecureBrokers="true" \
             --wait
 
           kubectl wait --for=condition=ready clusterbuilder --all=true --timeout=15m
-
-          kubectl -n sidecar-gateway patch gateway korifi --type='json' -p='[{"op": "replace", "path": "/spec/listeners/0/port", "value":32080}]'
-          kubectl -n sidecar-gateway patch gateway korifi --type='json' -p='[{"op": "replace", "path": "/spec/listeners/1/port", "value":32443}]'
-          kubectl -n sidecar-gateway patch gateway korifi --type='json' -p='[{"op": "replace", "path": "/spec/listeners/2/port", "value":32443}]'
 
           kubectl apply -f - <<EOF
           kind: GatewayClass
@@ -144,7 +144,7 @@ spec:
               networkPublishing:
                 type: NodePortService
           EOF
-        image: index.docker.io/cloudfoundry/korifi-installer@sha256:59b86548500efdacac1869df76f377ac37e824d34616d23fe1846f888705ce6a
+        image: index.docker.io/cloudfoundry/korifi-installer@sha256:3b58e010c29a95c9bff7ae492f3b0e9dfcb0c48438d4b096e023cb1d9d81f38b
         name: install-sidecar
       restartPolicy: Never
       serviceAccountName: sidecar-installer

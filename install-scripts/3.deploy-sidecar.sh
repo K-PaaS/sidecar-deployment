@@ -1,7 +1,7 @@
 #!/bin/bash
 source variables.yml
 
-HELM_VERSION=0.12.0
+HELM_VERSION=0.13.0
 
 # deploy sidecar
 
@@ -31,6 +31,8 @@ if [[ ${use_dockerhub} = false ]] && [[ ${is_self_signed_certificate} = true ]] 
                 --set=kpackImageBuilder.builderRepository=$registry_address/$registry_repositry_name/kpack-builder \
                 --set=api.userCertificateExpirationWarningDuration=$(($user_certificate_expiration_duration_days*24))"h" \
                 --set=networking.gatewayClass="$sidecar_namespace-gateway" \
+		--set=experimental.managedServices.enabled="true" \
+		--set=experimental.managedServices.trustInsecureBrokers="true" \
                 --wait
 elif [[ ${use_dockerhub} = true ]] || [[ ${use_dockerhub} = false && ${is_self_signed_certificate} = false ]] ; then
         helm upgrade --install sidecar ../helm/korifi-$HELM_VERSION \
@@ -44,6 +46,8 @@ elif [[ ${use_dockerhub} = true ]] || [[ ${use_dockerhub} = false && ${is_self_s
                 --set=kpackImageBuilder.builderRepository=$registry_address/$registry_repositry_name/kpack-builder \
                 --set=api.userCertificateExpirationWarningDuration=$(($user_certificate_expiration_duration_days*24))"h" \
                 --set=networking.gatewayClass="$sidecar_namespace-gateway" \
+		--set=experimental.managedServices.enabled="true" \
+		--set=experimental.managedServices.trustInsecureBrokers="true" \
                 --wait
 else
 	echo "plz check variable is_self_signed_certificate or use_dockerhub"
