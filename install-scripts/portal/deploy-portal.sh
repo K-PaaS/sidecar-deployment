@@ -8,6 +8,7 @@ HELM_SIDECAR_NAME=sidecar
 TARGET_CLUSTER=host-cluster #check cp-portal-deployment/script/cp-portal-vars.sh HOST_CLUSTER_NAME
 ORG_NAME=system
 SPACE_NAME=portal
+SIDECAR_ADMIN_KUBECONFIG=$(pwd)/../support-files/user/sidecar-sidecar-admin.ua.kubeconfig
 
 # SCRIPT START
 
@@ -126,6 +127,9 @@ EOF
 # git submodule
 git submodule init
 git submodule update
+
+# sidecar config change
+export KUBECONFIG=$SIDECAR_ADMIN_KUBECONFIG
 
 cf create-org $ORG_NAME
 cf create-space -o $ORG_NAME $SPACE_NAME
