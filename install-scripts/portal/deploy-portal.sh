@@ -134,6 +134,8 @@ export KUBECONFIG=$SIDECAR_ADMIN_KUBECONFIG
 cf create-org $ORG_NAME
 cf create-space -o $ORG_NAME $SPACE_NAME
 
+cf target -o $ORG_NAME -s $SPACE_NAME
+
 # cf push
 #cd sidecar-portal-api
 #cf push --vars-file ../portal-variables.yml
