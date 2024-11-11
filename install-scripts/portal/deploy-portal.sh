@@ -6,6 +6,8 @@ HELM_CP_PORTAL_RESOURCE_NAME=cp-portal
 HELM_SIDECAR_NAMESPACE=sidecar
 HELM_SIDECAR_NAME=sidecar
 TARGET_CLUSTER=host-cluster #check cp-portal-deployment/script/cp-portal-vars.sh HOST_CLUSTER_NAME
+K8S_CLUSTER_ADMIN_NAMESPACE=kube-system #check cp-portal-deployment/script/cp-portal-vars.sh K8S_CLUSTER_ADMIN_NAMESPACE
+K8S_CLUSTER_ADMIN=cp-cluster-admin #check cp-portal-deployment/script/cp-portal-vars.sh K8S_CLUSTER_ADMIN
 ORG_NAME=system
 SPACE_NAME=portal
 SIDECAR_ADMIN_KUBECONFIG=$(pwd)/../support-files/user/sidecar-sidecar-admin.ua.kubeconfig
@@ -122,6 +124,11 @@ VAULT_SECRET_ID: $VAULT_SECRET_ID
 VAULT_URL: $VAULT_URL
 TARGET_CLUSTER: $TARGET_CLUSTER
 EOF
+
+# CP Portal Admin Sidecar Role Binding
+cd ../support-files/user
+echo $K8S_CLUSTER_ADMIN_NAMESPACE | source binding-admin.sh sa $K8S_CLUSTER_ADMIN
+cd ../../portal
 
 
 # git submodule
