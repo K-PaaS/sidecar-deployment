@@ -11,6 +11,8 @@ K8S_CLUSTER_ADMIN=cp-cluster-admin #check cp-portal-deployment/script/cp-portal-
 ORG_NAME=system
 SPACE_NAME=portal
 SIDECAR_ADMIN_KUBECONFIG=$(pwd)/../support-files/user/sidecar-sidecar-admin.ua.kubeconfig
+PORTAL_API_NAME=sidecar-portal-api
+PORTAL_UI_NAME=sidecar-portal-ui
 
 # SCRIPT START
 
@@ -21,9 +23,9 @@ SIDECAR_TOKEN_KIND=bearer
 SIDECAR_ROOTNAMESPACE=$(helm get values $HELM_SIDECAR_NAME -n $HELM_SIDECAR_NAMESPACE | yq e '.rootNamespace')
 SIDECAR_ROLEADMIN=korifi-controllers-admin
 SIDECAR_ROLEUSER=korifi-controllers-root-namespace-user
-SIDECAR_PORTAL_API_URL=http://sidecar-portal-api.$(helm get values $HELM_SIDECAR_NAME -n $HELM_SIDECAR_NAMESPACE | yq e '.defaultAppDomainName')
+SIDECAR_PORTAL_API_URL=http://$PORTAL_API_NAME.$(helm get values $HELM_SIDECAR_NAME -n $HELM_SIDECAR_NAMESPACE | yq e '.defaultAppDomainName')
 ### CP-PORTAL VARIABLES
-CP_PORTAL_API_URI=http://sidecar-portal-api.$(helm get values $HELM_SIDECAR_NAME -n $HELM_SIDECAR_NAMESPACE | yq e '.defaultAppDomainName')
+CP_PORTAL_API_URI=http://$PORTAL_API_NAME.$(helm get values $HELM_SIDECAR_NAME -n $HELM_SIDECAR_NAMESPACE | yq e '.defaultAppDomainName')
 CP_PORTAL_COMMON_API_URI=$(helm get values $HELM_CP_PORTAL_RESOURCE_NAME -n $HELM_CP_PORTAL_NAMESPACE | yq e '.configmap.data.CP_PORTAL_COMMON_API_URI')
 CP_PORTAL_METRIC_COLLECTOR_API_URI=$(helm get values $HELM_CP_PORTAL_RESOURCE_NAME -n $HELM_CP_PORTAL_NAMESPACE | yq e '.configmap.data.CP_PORTAL_METRIC_COLLECTOR_API_URI')
 CP_PORTAL_TERRAMAN_API_URI=$(helm get values $HELM_CP_PORTAL_RESOURCE_NAME -n $HELM_CP_PORTAL_NAMESPACE | yq e '.configmap.data.CP_PORTAL_TERRAMAN_API_URI')
@@ -144,12 +146,12 @@ cf create-space -o $ORG_NAME $SPACE_NAME
 cf target -o $ORG_NAME -s $SPACE_NAME
 
 # cf push
-#cd sidecar-portal-api
-#cf push --vars-file ../portal-variables.yml
+cd sidecar-portal-api
+cf push --vars-file ../portal-variables.yml $PORTAL_API_NAME
 
-#cd ../sidecar-portal-ui
-#cf push --vars-file ../portal-variables.yml
+cd ../sidecar-portal-ui
+cf push --vars-file ../portal-variables.yml $PORTAL_UI_NAME
 
-#cd ..
+cd ..
 
-#cf apps
+cf apps
