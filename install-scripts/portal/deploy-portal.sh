@@ -1,18 +1,6 @@
 #!/bin/bash
 
-# CUSTOM VARIABLES
-HELM_CP_PORTAL_NAMESPACE=cp-portal
-HELM_CP_PORTAL_RESOURCE_NAME=cp-portal
-HELM_SIDECAR_NAMESPACE=sidecar
-HELM_SIDECAR_NAME=sidecar
-TARGET_CLUSTER=host-cluster #check cp-portal-deployment/script/cp-portal-vars.sh HOST_CLUSTER_NAME
-K8S_CLUSTER_ADMIN_NAMESPACE=kube-system #check cp-portal-deployment/script/cp-portal-vars.sh K8S_CLUSTER_ADMIN_NAMESPACE
-K8S_CLUSTER_ADMIN=cp-cluster-admin #check cp-portal-deployment/script/cp-portal-vars.sh K8S_CLUSTER_ADMIN
-ORG_NAME=system
-SPACE_NAME=portal
-SIDECAR_ADMIN_KUBECONFIG=$(pwd)/../support-files/user/sidecar-sidecar-admin.ua.kubeconfig
-PORTAL_API_NAME=sidecar-portal-api
-PORTAL_UI_NAME=sidecar-portal-ui
+source portal-deploy-variables.yml
 
 # SCRIPT START
 
@@ -81,9 +69,9 @@ echo "VAULT_SECRET_ID: $VAULT_SECRET_ID"
 echo "VAULT_URL: $VAULT_URL"
 echo "TARGET_CLUSTER: $TARGET_CLUSTER"
 
-if [ -e ./portal-variables.yml ]; then
+if [ -e ./portal-app-variables.yml ]; then
     while true; do
-        read -p "Do you want rewrite portal-variables.yml file? " yn
+        read -p "Do you want rewrite portal-app-variables.yml file? (y/n) " yn
         case $yn in
             [Yy]* ) break;;
             [Nn]* ) exit;;
@@ -92,7 +80,7 @@ if [ -e ./portal-variables.yml ]; then
     done
 fi
 
-cat <<EOF > portal-variables.yml
+cat <<EOF > portal-app-variables.yml
 SIDECAR_API_URL: $SIDECAR_API_URL
 SIDECAR_TOKEN_KIND: $SIDECAR_TOKEN_KIND
 SIDECAR_ROOTNAMESPACE: $SIDECAR_ROOTNAMESPACE
@@ -147,10 +135,10 @@ cf target -o $ORG_NAME -s $SPACE_NAME
 
 # cf push
 cd sidecar-portal-api
-cf push --vars-file ../portal-variables.yml $PORTAL_API_NAME
+cf push --vars-file ../portal-app-variables.yml $PORTAL_API_NAME
 
 cd ../sidecar-portal-ui
-cf push --vars-file ../portal-variables.yml $PORTAL_UI_NAME
+cf push --vars-file ../portal-app-variables.yml $PORTAL_UI_NAME
 
 cd ..
 
