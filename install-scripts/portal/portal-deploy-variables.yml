@@ -13,4 +13,4 @@ SPACE_NAME=portal
 SIDECAR_ADMIN_KUBECONFIG=$(pwd)/../support-files/user/sidecar-sidecar-admin.ua.kubeconfig
 PORTAL_API_NAME=sidecar-portal-api
 PORTAL_UI_NAME=sidecar-portal-ui
-
+CP_PORTAL_ADMIN_NAME=cp-cluster-admin #check cp-portal-deployment/script/cp-portal-vars.sh K8S_CLUSTER_ADMIN
