@@ -11,6 +11,8 @@ SIDECAR_TOKEN_KIND=bearer
 SIDECAR_ROOTNAMESPACE=$(helm get values $HELM_SIDECAR_NAME -n $HELM_SIDECAR_NAMESPACE | yq e '.rootNamespace')
 SIDECAR_ROLEADMIN=korifi-controllers-admin
 SIDECAR_ROLEUSER=korifi-controllers-root-namespace-user
+SIDECAR_ROLEORGMANAGER=korifi-controllers-organization-manager
+SIDECAR_ROLEORGUSER=korifi-controllers-organization-user
 SIDECAR_PORTAL_API_URL=http://$PORTAL_API_NAME.$(helm get values $HELM_SIDECAR_NAME -n $HELM_SIDECAR_NAMESPACE | yq e '.defaultAppDomainName')
 ### CP-PORTAL VARIABLES
 CP_PORTAL_API_URI=http://$PORTAL_API_NAME.$(helm get values $HELM_SIDECAR_NAME -n $HELM_SIDECAR_NAMESPACE | yq e '.defaultAppDomainName')
