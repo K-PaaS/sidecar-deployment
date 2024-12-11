@@ -71,6 +71,9 @@ echo "VAULT_SECRET_ID: $VAULT_SECRET_ID"
 echo "VAULT_URL: $VAULT_URL"
 echo "TARGET_CLUSTER: $TARGET_CLUSTER"
 echo "CP_PORTAL_ADMIN_NAME: $CP_PORTAL_ADMIN_NAME"
+echo "SIDECAR_ROLEORGMANAGER: $SIDECAR_ROLEORGMANAGER"
+echo "SIDECAR_ROLEORGUSER: $SIDECAR_ROLEORGUSER"
+
 
 if [ -e ./portal-app-variables.yml ]; then
     while true; do
@@ -117,6 +120,8 @@ VAULT_SECRET_ID: $VAULT_SECRET_ID
 VAULT_URL: $VAULT_URL
 TARGET_CLUSTER: $TARGET_CLUSTER
 CP_PORTAL_ADMIN_NAME: $CP_PORTAL_ADMIN_NAME
+SIDECAR_ROLEORGMANAGER: $SIDECAR_ROLEORGMANAGER
+SIDECAR_ROLEORGUSER: $SIDECAR_ROLEORGUSER
 EOF
 
 # CP Portal Admin Sidecar Role Binding
@@ -128,6 +133,16 @@ cd ../../portal
 # git submodule
 git submodule init
 git submodule update
+
+# git checkout
+cd sidecar-portal-api
+git checkout packaging
+
+
+cd ../sidecar-portal-ui
+git checkout packaging
+
+cd ..
 
 # sidecar config change
 export KUBECONFIG=$SIDECAR_ADMIN_KUBECONFIG
