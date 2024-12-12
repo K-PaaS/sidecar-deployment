@@ -34,7 +34,7 @@ rm ./kubectl
 
 # cf cli install
 
-curl -L "https://packages.cloudfoundry.org/stable?release=linux64-binary&version=v8&source=github" | tar -zx
+curl -L "https://s3-us-west-1.amazonaws.com/v8-cf-cli-releases/releases/v8.7.11/cf8-cli_8.7.11_linux_x86-64.tgz" | tar -zx
 sudo mv cf8 /usr/local/bin
 sudo mv cf /usr/local/bin
 sudo curl -o /usr/share/bash-completion/completions/cf8 https://raw.githubusercontent.com/cloudfoundry/cli-ci/master/ci/installers/completion/cf8
