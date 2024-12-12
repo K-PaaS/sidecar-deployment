@@ -136,11 +136,11 @@ git submodule update
 
 # git checkout
 cd sidecar-portal-api
-git checkout packaging
+git checkout v1.0.0
 
 
 cd ../sidecar-portal-ui
-git checkout packaging
+git checkout v1.0.0
 
 cd ..
 
