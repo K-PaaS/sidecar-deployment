@@ -1,0 +1,92 @@
+
+# script/cp-portal-vars.sh
+1. 원할한 변수설정을 위한 변경
+K8S_MASTER_NODE_IP="{k8s master node public ip}"
+K8S_MASTER_NODE_IP=${kubectl config view | yq e '.clusters[0].cluster.server' | cut -d '/' -f 3 | cut -d ':' -f 1
+}
+
+HOST_DOMAIN="{host domain}"
+HOST_DOMAIN=INGRESS_HOST_DOMAIN
+
+IMAGE_NAME=(
+"cp-portal-ui"
+"cp-portal-api"
+"cp-portal-common-api"
+"cp-portal-metric-api"
+"cp-portal-terraman"
+)
+IMAGE_NAME=(
+"cp-portal-common-api"
+"cp-portal-metric-api"
+)
+
+# script/deploy-cp-portal.sh (delete)
+echo "Please wait for cp-portal-terraman pod is running ..."
+while :
+do
+  POD_STATUS=$((kubectl get pods -n ${NAMESPACE[4]} -l app=${IMAGE_NAME[4]} -o=jsonpath='{.items[0].status.phase}') 2> /dev/null)
+  echo "[$POD_STATUS] Check the status of cp-portal-terraman pod..."
+  if [ $POD_STATUS == "Running" ]; then
+    break
+  fi
+  sleep 5
+done
+
+CP_PORTAL_TERRAMAN_POD=$(kubectl get pods -n ${NAMESPACE[4]} -l app=${IMAGE_NAME[4]} -o=jsonpath='{.items[0].metadata.name}')
+SSH_KEY_FILE=$HOME/.ssh/id_rsa
+
+if [ ! -e "$SSH_KEY_FILE" ]; then
+    ssh-keygen -q -t rsa -N '' -f $SSH_KEY_FILE <<<y >/dev/null 2>&1
+    GEN_SSH_KEY=$(cat "$SSH_KEY_FILE.pub")
+    echo $GEN_SSH_KEY >> $HOME/.ssh/authorized_keys
+fi
+
+kubectl cp $SSH_KEY_FILE ${NAMESPACE[4]}/${CP_PORTAL_TERRAMAN_POD}:/home/1000/.ssh/master-key
+
+
+# values_orig/cp-portal.yaml (delete)
+apps:
+  - name: cp-portal-ui
+    replicas: 1
+    expose:
+      port: 8090
+      targetPort: 8090
+  - name: cp-portal-api
+    replicas: 1
+    expose:
+      port: 3333
+      targetPort: 3333
+  - name: cp-portal-terraman
+    replicas: 1
+    expose:
+      port: 8091
+      targetPort: 8091
+    volumes:
+       name: data
+       path: /home/1000/.ssh
+
+ingress:
+  host: {CP_PORTAL_INGRESS_HOST}
+  className: {CP_DEFAULT_INGRESS_CLASS_NAME}
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+  paths:
+    - path: /()(.*)
+      pathType: ImplementationSpecific
+      service: cp-portal-ui-service
+      port: 8090
+    - path: /cpapi(/|$)(.*)
+      pathType: ImplementationSpecific
+      service: cp-portal-api-service
+      port: 3333
+
+persistence:
+  persistentVolumeClaim:
+    - name: cp-portal-terraman
+      accessMode: ReadWriteOnce
+      storageClass: {CP_PORTAL_STORAGECLASS}
+      size: 5Gi
+
+
+
+

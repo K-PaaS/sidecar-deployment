@@ -1,0 +1,6 @@
+[submodule "install-scripts/portal/sidecar-portal-ui"]
+	path = install-scripts/portal/sidecar-portal-ui
+	url = https://github.com/K-PaaS/sidecar-portal-ui
+[submodule "install-scripts/portal/sidecar-portal-api"]
+	path = install-scripts/portal/sidecar-portal-api
+	url = https://github.com/K-PaaS/sidecar-portal-api
