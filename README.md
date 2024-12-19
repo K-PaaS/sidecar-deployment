@@ -3,9 +3,9 @@
 <table>
 <thead>
   <tr>
-    <th>플랫폼</th>
-    <th><a href="https://github.com/K-PaaS/cp-deployment">컨테이너 플랫폼</a></th>
-    <th><a href="https://github.com/K-PaaS/sidecar-deployment">🚩사이드카</a></th>
+    <th width="100">플랫폼</th>
+    <th width="250"><a href="https://github.com/K-PaaS/cp-deployment">컨테이너 플랫폼</a></th>
+    <th width="250"><a href="https://github.com/K-PaaS/sidecar-deployment">🚩사이드카</a></th>
   </tr>
 </thead>
 <tbody>
