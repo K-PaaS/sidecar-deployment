@@ -3,12 +3,12 @@
 #VARIABLES
 INGRESS_HOST_DOMAIN="{host domain}"		# Host Domain (e.g. xx.xxx.xxx.xx.nip.io)
 
-CP_PORTAL_VERSION=v1.6.6
+CP_PORTAL_VERSION=v1.6.0
 
 # SCRIPT START
 
 # 1. CP PORTAL DOWNLOAD
-wget --content-disposition https://nextcloud.k-paas.org/index.php/s/2LeyyQTaCySmKzH/download
+wget --content-disposition https://nextcloud.k-paas.org/index.php/s/ZcFt4cpeXj8d4o4/download
 tar -xvf cp-portal-deployment-$CP_PORTAL_VERSION.tar.gz
 
 # 2. CP PORTAL TEMPLATE COPY
