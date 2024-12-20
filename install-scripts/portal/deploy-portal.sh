@@ -140,7 +140,7 @@ git checkout v1.0.0
 
 
 cd ../sidecar-portal-ui
-git checkout v1.0.0
+git checkout v1.0.1
 
 cd ..
 
