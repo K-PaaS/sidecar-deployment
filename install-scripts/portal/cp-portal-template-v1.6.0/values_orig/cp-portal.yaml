@@ -24,6 +24,12 @@ global:
       periodSeconds: 10
       failureThreshold: 3
 
+imageCredentials:
+  name: {IMAGE_PULL_SECRET}
+  registry: {REPOSITORY_HOST}
+  username: {REPOSITORY_USERNAME}
+  password: {REPOSITORY_PASSWORD}
+
 apps:
   - name: cp-portal-common-api
     replicas: 1
@@ -36,6 +42,14 @@ apps:
       port: 8900
       targetPort: 8900
 
+
+tlsSecret:
+  name: {TLS_SECRET}
+  tls:
+    crt: tls.crt
+    key: tls.key
+
+
 configmap:
   data:
     K8S_MASTER_NODE_IP: {K8S_MASTER_NODE_IP}
@@ -44,6 +58,7 @@ configmap:
     KEYCLOAK_ADMIN_USERNAME: {KEYCLOAK_ADMIN_USERNAME}
     KEYCLOAK_ADMIN_PASSWORD: {KEYCLOAK_ADMIN_PASSWORD}
     KEYCLOAK_CP_REALM: {KEYCLOAK_CP_REALM}
+    KEYCLOAK_CP_REALM_ID: {KEYCLOAK_CP_REALM_ID}
     KEYCLOAK_CP_CLIENT_ID: {KEYCLOAK_CP_CLIENT_ID}
     KEYCLOAK_CP_CLIENT_SECRET: {KEYCLOAK_CP_CLIENT_SECRET}
     REPOSITORY_URL: {REPOSITORY_URL}
@@ -52,12 +67,24 @@ configmap:
     DATABASE_USER_PASSWORD: {DATABASE_USER_PASSWORD}
     DATABASE_TERRAMAN_ID: {DATABASE_TERRAMAN_ID}
     DATABASE_TERRAMAN_PASSWORD: {DATABASE_TERRAMAN_PASSWORD}
-    VAULT_URL: {VAULT_URL}
+    VAULT_URL: http://vault.{VAULT_NAMESPACE}.svc.cluster.local:8200
     VAULT_ROLE_NAME: {VAULT_ROLE_NAME}
     VAULT_ROLE_ID: {VAULT_ROLE_ID}
     VAULT_SECRET_ID: {VAULT_SECRET_ID}
     CP_PORTAL_UI_URI: {CP_PORTAL_URL}
     CP_PORTAL_API_URI: {CP_PORTAL_URL}/cpapi
+    CP_PORTAL_CATALOG_API_URI: {CP_PORTAL_URL}/cpcatalog
+    CP_PORTAL_CHAOS_API_URI: {CP_PORTAL_URL}/cpchaos
     CP_PORTAL_COMMON_API_URI: http://cp-portal-common-api-service.{NAMESPACE}.svc.cluster.local:3334
     CP_PORTAL_TERRAMAN_API_URI: http://cp-portal-terraman-service.{NAMESPACE}.svc.cluster.local:8091
     CP_PORTAL_METRIC_COLLECTOR_API_URI: http://cp-portal-metric-api-service.{NAMESPACE}.svc.cluster.local:8900
+    CP_PORTAL_CHAOS_COLLECTOR_API_URI: http://cp-portal-chaos-collector-service.{NAMESPACE}.svc.cluster.local:8094
+    CHAOS_DASHBOARD_API_URI: http://chaos-dashboard.{CHAOS_MESH_NAMESPACE}.svc.cluster.local:2333
+    HELM_REPO_CA: /home/1000/helm/cert
+    HELM_REPO_CACHE: /home/1000/helm/cache
+    HELM_REPO_CONFIG: /home/1000/helm/repositories.yaml
+    CHART_REPO_NAME: {CHART_REPOSITORY_NAME}
+    CHART_REPO_URL: {CHART_REPOSITORY_URL}
+    CHART_REPO_USERNAME: NOAUTH
+    CHART_REPO_PASSWORD: NOAUTH
+    CHART_REPO_CRT: tls.crt
