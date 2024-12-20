@@ -3,7 +3,7 @@
 #VARIABLES
 INGRESS_HOST_DOMAIN="{host domain}"		# Host Domain (e.g. xx.xxx.xxx.xx.nip.io)
 
-CP_PORTAL_VERSION=v1.5.2
+CP_PORTAL_VERSION=v1.6.6
 
 # SCRIPT START
 
