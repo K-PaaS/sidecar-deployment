@@ -165,24 +165,24 @@ kubectl create configmap $KEYCLOAK_CP_REALM --from-file=../values/$KEYCLOAK_CP_R
 helm install -f ../values/${CHART_NAME[3]}.yaml ${CHART_NAME[3]} ../charts/${CHART_NAME[3]}.tgz -n ${NAMESPACE[3]}
 
 # Deploy the chartmuseum
-kubectl create namespace ${NAMESPACE[5]}
-$CMD_CREATE_TLS_SECRET -n ${NAMESPACE[5]}
-helm install -f ../values/${CHART_NAME[5]}.yaml ${CHART_NAME[5]} ../charts/${CHART_NAME[5]}.tgz -n ${NAMESPACE[5]}
-while :
-do
-  CHART_REPOSITORY_HTTP_CODE=$(curl -L -k -s -o /dev/null -w "%{http_code}\n" $CHART_REPOSITORY_URL/index.yaml)
-  echo "[$CHART_REPOSITORY_HTTP_CODE] Check the status of ChartMuseum..."
-  if [ $CHART_REPOSITORY_HTTP_CODE -eq 200 ]; then
-    break
-  fi
-  sleep 5
-done
-helm plugin install https://github.com/chartmuseum/helm-push.git
-helm repo add $CHART_REPOSITORY_NAME $CHART_REPOSITORY_URL
+#kubectl create namespace ${NAMESPACE[5]}
+#$CMD_CREATE_TLS_SECRET -n ${NAMESPACE[5]}
+#helm install -f ../values/${CHART_NAME[5]}.yaml ${CHART_NAME[5]} ../charts/${CHART_NAME[5]}.tgz -n ${NAMESPACE[5]}
+#while :
+#do
+#  CHART_REPOSITORY_HTTP_CODE=$(curl -L -k -s -o /dev/null -w "%{http_code}\n" $CHART_REPOSITORY_URL/index.yaml)
+#  echo "[$CHART_REPOSITORY_HTTP_CODE] Check the status of ChartMuseum..."
+#  if [ $CHART_REPOSITORY_HTTP_CODE -eq 200 ]; then
+#    break
+#  fi
+#  sleep 5
+#done
+#helm plugin install https://github.com/chartmuseum/helm-push.git
+#helm repo add $CHART_REPOSITORY_NAME $CHART_REPOSITORY_URL
 
 # Deploy the chaos-mesh
-kubectl create namespace ${NAMESPACE[6]}
-helm install -f ../values/${CHART_NAME[6]}.yaml ${CHART_NAME[6]} ../charts/${CHART_NAME[6]}.tgz -n ${NAMESPACE[6]}
+#kubectl create namespace ${NAMESPACE[6]}
+#helm install -f ../values/${CHART_NAME[6]}.yaml ${CHART_NAME[6]} ../charts/${CHART_NAME[6]}.tgz -n ${NAMESPACE[6]}
 
 # Deploy the cp-portal
 kubectl create namespace ${NAMESPACE[4]}
@@ -191,5 +191,25 @@ helm install -f ../values/${RELEASE_NAME}.yaml ${RELEASE_NAME} ../charts/${CHART
      --set-literal tlsSecret.tls.key=$(cat ../certs/${HOST_DOMAIN}.key | base64 -w 0) \
      --set-literal configmap.data.CHART_REPO_CRT=$(cat ../certs/${HOST_DOMAIN}.crt | base64 -w 0)
 
+#echo "Please wait for cp-portal-terraman pod is running ..."
+#while :
+#do
+#  POD_STATUS="$((kubectl get pods -n ${NAMESPACE[4]} -l app=${IMAGE_NAME[4]} -o=jsonpath='{.items[0].status.phase}') 2> /dev/null)"
+#  echo "[$POD_STATUS] Check the status of cp-portal-terraman pod..."
+#  if [[ $POD_STATUS == "Running" ]]; then
+#    break
+#  fi
+#  sleep 5
+#done
+#CP_PORTAL_TERRAMAN_POD="$(kubectl get pods -n ${NAMESPACE[4]} -l app=${IMAGE_NAME[4]} -o=jsonpath='{.items[0].metadata.name}')"
+#SSH_KEY_FILE=$HOME/.ssh/id_rsa
+#if [ ! -e "$SSH_KEY_FILE" ]; then
+#    ssh-keygen -q -t rsa -N '' -f $SSH_KEY_FILE <<<y >/dev/null 2>&1
+#    GEN_SSH_KEY=$(cat "$SSH_KEY_FILE.pub")
+#    echo $GEN_SSH_KEY >> $HOME/.ssh/authorized_keys
+#fi
+#kubectl cp $SSH_KEY_FILE ${NAMESPACE[4]}/${CP_PORTAL_TERRAMAN_POD}:/home/1000/.ssh/master-key
+
 # Uninstall cp-cert-setup
 helm uninstall ${CHART_NAME[8]} -n $CP_CERT_SETUP_NAMESPACE
+

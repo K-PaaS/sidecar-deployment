@@ -9,10 +9,12 @@ HOST_DOMAIN=INGRESS_HOST_DOMAIN                                               # 
 # If you change the values below, there will be a problem with the deploy. Please keep the values.
 NAMESPACE=(
 "vault"
-"harbor"
 "mariadb"
+"harbor"
 "keycloak"
 "cp-portal"
+"chartmuseum"
+"chaos-mesh"
 )
 
 IAAS_TYPE=(
@@ -29,6 +31,8 @@ CHART_NAME=(
 "harbor"
 "keycloak"
 "cp-app"
+"chartmuseum"
+"chaos-mesh"
 "vault-secrets-operator"
 "cp-cert-setup"
 )
