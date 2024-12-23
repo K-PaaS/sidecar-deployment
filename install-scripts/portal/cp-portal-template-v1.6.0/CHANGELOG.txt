@@ -1,0 +1,152 @@
+
+# script/cp-portal-vars.sh
+1. 원할한 변수설정을 위한 변경
+K8S_MASTER_NODE_IP="{k8s master node public ip}"
+
+=>
+
+K8S_MASTER_NODE_IP=${kubectl config view | yq e '.clusters[0].cluster.server' | cut -d '/' -f 3 | cut -d ':' -f 1
+}
+
+HOST_DOMAIN="{host domain}"
+
+=>
+
+HOST_DOMAIN=INGRESS_HOST_DOMAIN
+
+IMAGE_NAME=(
+"cp-portal-ui"
+"cp-portal-api"
+"cp-portal-common-api"
+"cp-portal-metric-api"
+"cp-portal-terraman"
+)
+
+=>
+
+IMAGE_NAME=(
+"cp-portal-common-api"
+"cp-portal-metric-api"
+)
+
+# script/deploy-cp-portal.sh (delete)
+----------------------------------------
+kubectl create namespace ${NAMESPACE[5]}
+$CMD_CREATE_TLS_SECRET -n ${NAMESPACE[5]}
+helm install -f ../values/${CHART_NAME[5]}.yaml ${CHART_NAME[5]} ../charts/${CHART_NAME[5]}.tgz -n ${NAMESPACE[5]}
+while :
+do
+  CHART_REPOSITORY_HTTP_CODE=$(curl -L -k -s -o /dev/null -w "%{http_code}\n" $CHART_REPOSITORY_URL/index.yaml)
+  echo "[$CHART_REPOSITORY_HTTP_CODE] Check the status of ChartMuseum..."
+  if [ $CHART_REPOSITORY_HTTP_CODE -eq 200 ]; then
+    break
+  fi
+  sleep 5
+done
+helm plugin install https://github.com/chartmuseum/helm-push.git
+helm repo add $CHART_REPOSITORY_NAME $CHART_REPOSITORY_URL
+
+----------------------------------------
+kubectl create namespace ${NAMESPACE[6]}
+helm install -f ../values/${CHART_NAME[6]}.yaml ${CHART_NAME[6]} ../charts/${CHART_NAME[6]}.tgz -n ${NAMESPACE[6]}
+
+----------------------------------------
+echo "Please wait for cp-portal-terraman pod is running ..."
+while :
+do
+  POD_STATUS="$((kubectl get pods -n ${NAMESPACE[4]} -l app=${IMAGE_NAME[4]} -o=jsonpath='{.items[0].status.phase}') 2> /dev/null)"
+  echo "[$POD_STATUS] Check the status of cp-portal-terraman pod..."
+  if [[ $POD_STATUS == "Running" ]]; then
+    break
+  fi
+  sleep 5
+done
+CP_PORTAL_TERRAMAN_POD="$(kubectl get pods -n ${NAMESPACE[4]} -l app=${IMAGE_NAME[4]} -o=jsonpath='{.items[0].metadata.name}')"
+SSH_KEY_FILE=$HOME/.ssh/id_rsa
+if [ ! -e "$SSH_KEY_FILE" ]; then
+    ssh-keygen -q -t rsa -N '' -f $SSH_KEY_FILE <<<y >/dev/null 2>&1
+    GEN_SSH_KEY=$(cat "$SSH_KEY_FILE.pub")
+    echo $GEN_SSH_KEY >> $HOME/.ssh/authorized_keys
+fi
+kubectl cp $SSH_KEY_FILE ${NAMESPACE[4]}/${CP_PORTAL_TERRAMAN_POD}:/home/1000/.ssh/master-key
+
+
+
+# values_orig/cp-portal.yaml (delete)
+apps:
+  - name: cp-portal-ui
+    replicas: 1
+    expose:
+      port: 8090
+      targetPort: 8090
+  - name: cp-portal-api
+    replicas: 1
+    expose:
+      port: 3333
+      targetPort: 3333
+  - name: cp-portal-chaos-api
+    replicas: 1
+    expose:
+      port: 8092
+      targetPort: 8092
+  - name: cp-portal-chaos-collector
+    replicas: 1
+    expose:
+      port: 8094
+      targetPort: 8094
+  - name: cp-portal-terraman
+    replicas: 1
+    expose:
+      port: 8091
+      targetPort: 8091
+    volumes:
+      name: data
+      path: /home/1000/.ssh
+  - name: cp-portal-catalog-api
+    replicas: 1
+    expose:
+      port: 8093
+      targetPort: 8093
+    volumes:
+      name: data
+      path: /home/1000/helm
+
+----------------------------------------
+ingress:
+  host: {CP_PORTAL_HOST}
+  className: "{INGRESS_CLASS_NAME}"
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+  paths:
+    - path: /()(.*)
+      pathType: ImplementationSpecific
+      service: cp-portal-ui-service
+      port: 8090
+    - path: /cpapi(/|$)(.*)
+      pathType: ImplementationSpecific
+      service: cp-portal-api-service
+      port: 3333
+    - path: /cpcatalog(/|$)(.*)
+      pathType: ImplementationSpecific
+      service: cp-portal-catalog-api-service
+      port: 8093
+    - path: /cpchaos(/|$)(.*)
+      pathType: ImplementationSpecific
+      service: cp-portal-chaos-api-service
+      port: 8092
+  tls:
+    secretName: "{TLS_SECRET}"
+
+
+----------------------------------------
+persistence:
+  persistentVolumeClaim:
+    - name: cp-portal-terraman
+      accessMode: ReadWriteOnce
+      storageClass: {CP_PORTAL_STORAGECLASS}
+      size: 5Gi
+    - name: cp-portal-catalog-api
+      accessMode: ReadWriteOnce
+      storageClass: {CP_PORTAL_STORAGECLASS}
+      size: 5Gi
+
