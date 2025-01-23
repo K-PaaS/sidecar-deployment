@@ -9,6 +9,7 @@ import (
 
 	"code.cloudfoundry.org/korifi/api/errors"
 	"code.cloudfoundry.org/korifi/api/payloads"
+	"code.cloudfoundry.org/korifi/api/repositories"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -91,12 +92,27 @@ var _ = Describe("RoleCreate", func() {
 	})
 
 	Context("ToMessage()", func() {
+		var msg repositories.CreateRoleMessage
+
+		JustBeforeEach(func() {
+			msg = roleCreate.ToMessage()
+		})
+
 		It("converts to repo message correctly", func() {
-			msg := roleCreate.ToMessage()
 			Expect(msg.Type).To(Equal("space_manager"))
 			Expect(msg.Space).To(Equal("cf-space-guid"))
 			Expect(msg.User).To(Equal("cf-service-account"))
 			Expect(msg.Kind).To(Equal(rbacv1.UserKind))
+		})
+
+		When("user origin is specified", func() {
+			BeforeEach(func() {
+				createPayload.Relationships.User.Data.Origin = "my-origin"
+			})
+
+			It("uses the origin in the message user", func() {
+				Expect(msg.User).To(Equal("my-origin:cf-service-account"))
+			})
 		})
 	})
 
@@ -205,5 +221,14 @@ var _ = Describe("role list", func() {
 			Expect(decodeErr).To(MatchError(ContainSubstring(expectedErrMsg)))
 		},
 		Entry("invalid order_by", "order_by=foo", "value must be one of"),
+	)
+
+	DescribeTable("ToMessage",
+		func(roleList payloads.RoleList, expectedListRolesMessage repositories.ListRolesMessage) {
+			actualListRolesMessage := roleList.ToMessage()
+
+			Expect(actualListRolesMessage).To(Equal(expectedListRolesMessage))
+		},
+		Entry("created_at", payloads.RoleList{OrderBy: "created_at"}, repositories.ListRolesMessage{OrderBy: "created_at"}),
 	)
 })

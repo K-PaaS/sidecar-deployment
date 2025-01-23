@@ -4,10 +4,13 @@ import (
 	"code.cloudfoundry.org/korifi/api/errors"
 	"code.cloudfoundry.org/korifi/api/payloads"
 	"code.cloudfoundry.org/korifi/api/repositories"
+	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/tools"
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/onsi/gomega/gstruct"
+	. "github.com/onsi/gomega/gstruct"
+	"github.com/onsi/gomega/types"
 )
 
 var _ = Describe("ServiceBindingList", func() {
@@ -18,10 +21,23 @@ var _ = Describe("ServiceBindingList", func() {
 			Expect(decodeErr).NotTo(HaveOccurred())
 			Expect(*actualServiceBindingList).To(Equal(expectedServiceBindingList))
 		},
+		Entry("type", "type=key", payloads.ServiceBindingList{Type: korifiv1alpha1.CFServiceBindingTypeKey}),
+		Entry("type", "type=app", payloads.ServiceBindingList{Type: korifiv1alpha1.CFServiceBindingTypeApp}),
 		Entry("app_guids", "app_guids=app_guid", payloads.ServiceBindingList{AppGUIDs: "app_guid"}),
 		Entry("service_instance_guids", "service_instance_guids=si_guid", payloads.ServiceBindingList{ServiceInstanceGUIDs: "si_guid"}),
-		Entry("include", "include=include", payloads.ServiceBindingList{Include: "include"}),
+		Entry("include", "include=app", payloads.ServiceBindingList{Include: "app"}),
+		Entry("include", "include=service_instance", payloads.ServiceBindingList{Include: "service_instance"}),
 		Entry("label_selector=foo", "label_selector=foo", payloads.ServiceBindingList{LabelSelector: "foo"}),
+		Entry("service_plan_guids=plan-guid", "service_plan_guids=plan-guid", payloads.ServiceBindingList{PlanGUIDs: "plan-guid"}),
+	)
+
+	DescribeTable("invalid query",
+		func(query string, errMatcher types.GomegaMatcher) {
+			_, decodeErr := decodeQuery[payloads.ServiceBindingList](query)
+			Expect(decodeErr).To(errMatcher)
+		},
+		Entry("invalid type", "type=foo", MatchError(ContainSubstring("value must be one of"))),
+		Entry("invalid include type", "include=foo", MatchError(ContainSubstring("value must be one of"))),
 	)
 
 	Describe("ToMessage", func() {
@@ -32,10 +48,12 @@ var _ = Describe("ServiceBindingList", func() {
 
 		BeforeEach(func() {
 			payload = payloads.ServiceBindingList{
+				Type:                 korifiv1alpha1.CFServiceBindingTypeApp,
 				AppGUIDs:             "app1,app2",
 				ServiceInstanceGUIDs: "s1,s2",
 				Include:              "include",
 				LabelSelector:        "foo=bar",
+				PlanGUIDs:            "p1,p2",
 			}
 		})
 
@@ -45,25 +63,22 @@ var _ = Describe("ServiceBindingList", func() {
 
 		It("returns a list service bindings message", func() {
 			Expect(message).To(Equal(repositories.ListServiceBindingsMessage{
+				Type:                 korifiv1alpha1.CFServiceBindingTypeApp,
 				AppGUIDs:             []string{"app1", "app2"},
 				ServiceInstanceGUIDs: []string{"s1", "s2"},
 				LabelSelector:        "foo=bar",
+				PlanGUIDs:            []string{"p1", "p2"},
 			}))
 		})
 	})
 })
 
 var _ = Describe("ServiceBindingCreate", func() {
-	var (
-		createPayload        payloads.ServiceBindingCreate
-		serviceBindingCreate *payloads.ServiceBindingCreate
-		validatorErr         error
-		apiError             errors.ApiError
-	)
+	var createPayload payloads.ServiceBindingCreate
 
 	BeforeEach(func() {
-		serviceBindingCreate = new(payloads.ServiceBindingCreate)
 		createPayload = payloads.ServiceBindingCreate{
+			Name: tools.PtrTo(uuid.NewString()),
 			Relationships: &payloads.ServiceBindingRelationships{
 				App: &payloads.Relationship{
 					Data: &payloads.RelationshipData{
@@ -77,82 +92,140 @@ var _ = Describe("ServiceBindingCreate", func() {
 				},
 			},
 			Type: "app",
+			Parameters: map[string]any{
+				"p1": "p1-value",
+			},
 		}
 	})
 
-	JustBeforeEach(func() {
-		validatorErr = validator.DecodeAndValidateJSONPayload(createJSONRequest(createPayload), serviceBindingCreate)
-		apiError, _ = validatorErr.(errors.ApiError)
-	})
+	Describe("Validation", func() {
+		var (
+			serviceBindingCreate *payloads.ServiceBindingCreate
+			validatorErr         error
+			apiError             errors.ApiError
+		)
 
-	It("succeeds", func() {
-		Expect(validatorErr).NotTo(HaveOccurred())
-		Expect(serviceBindingCreate).To(gstruct.PointTo(Equal(createPayload)))
-	})
-
-	When(`the type is "key"`, func() {
 		BeforeEach(func() {
-			createPayload.Type = "key"
+			serviceBindingCreate = new(payloads.ServiceBindingCreate)
 		})
 
-		It("fails", func() {
-			Expect(apiError).To(HaveOccurred())
-			Expect(apiError.Detail()).To(ContainSubstring("type value must be one of: app"))
+		JustBeforeEach(func() {
+			validatorErr = validator.DecodeAndValidateJSONPayload(createJSONRequest(createPayload), serviceBindingCreate)
+			apiError, _ = validatorErr.(errors.ApiError)
+		})
+
+		It("succeeds", func() {
+			Expect(validatorErr).NotTo(HaveOccurred())
+			Expect(serviceBindingCreate).To(PointTo(Equal(createPayload)))
+		})
+
+		When("name is omitted", func() {
+			BeforeEach(func() {
+				createPayload.Name = nil
+			})
+
+			It("succeeds", func() {
+				Expect(validatorErr).NotTo(HaveOccurred())
+				Expect(serviceBindingCreate).To(PointTo(Equal(createPayload)))
+			})
+		})
+
+		When(`the type is "key"`, func() {
+			BeforeEach(func() {
+				createPayload.Type = "key"
+			})
+
+			It("succeeds", func() {
+				Expect(validatorErr).NotTo(HaveOccurred())
+				Expect(serviceBindingCreate).To(PointTo(Equal(createPayload)))
+			})
+
+			When("name field is omitted", func() {
+				BeforeEach(func() {
+					createPayload.Name = nil
+				})
+
+				It("fails validation", func() {
+					Expect(apiError).To(HaveOccurred())
+					Expect(apiError.Detail()).To(ContainSubstring("name cannot be blank"))
+				})
+			})
+		})
+
+		When("all relationships are missing", func() {
+			BeforeEach(func() {
+				createPayload.Relationships = nil
+			})
+
+			It("fails", func() {
+				Expect(apiError).To(HaveOccurred())
+				Expect(apiError.Detail()).To(ContainSubstring("relationships is required"))
+			})
+		})
+
+		When("app relationship is missing", func() {
+			BeforeEach(func() {
+				createPayload.Relationships.App = nil
+			})
+
+			It("fails", func() {
+				Expect(apiError).To(HaveOccurred())
+				Expect(apiError.Detail()).To(ContainSubstring("relationships.app is required"))
+			})
+		})
+
+		When("the app GUID is blank", func() {
+			BeforeEach(func() {
+				createPayload.Relationships.App.Data.GUID = ""
+			})
+
+			It("fails", func() {
+				Expect(apiError).To(HaveOccurred())
+				Expect(apiError.Detail()).To(ContainSubstring("app.data.guid cannot be blank"))
+			})
+		})
+
+		When("service instance relationship is missing", func() {
+			BeforeEach(func() {
+				createPayload.Relationships.ServiceInstance = nil
+			})
+
+			It("fails", func() {
+				Expect(apiError).To(HaveOccurred())
+				Expect(apiError.Detail()).To(ContainSubstring("relationships.service_instance is required"))
+			})
+		})
+
+		When("the service instance GUID is blank", func() {
+			BeforeEach(func() {
+				createPayload.Relationships.ServiceInstance.Data.GUID = ""
+			})
+
+			It("fails", func() {
+				Expect(apiError).To(HaveOccurred())
+				Expect(apiError.Detail()).To(ContainSubstring("relationships.service_instance.data.guid cannot be blank"))
+			})
 		})
 	})
 
-	When("all relationships are missing", func() {
-		BeforeEach(func() {
-			createPayload.Relationships = nil
+	Describe("ToMessage", func() {
+		var createMessage repositories.CreateServiceBindingMessage
+
+		JustBeforeEach(func() {
+			createMessage = createPayload.ToMessage("space-guid")
 		})
 
-		It("fails", func() {
-			Expect(apiError).To(HaveOccurred())
-			Expect(apiError.Detail()).To(ContainSubstring("relationships is required"))
-		})
-	})
-
-	When("app relationship is missing", func() {
-		BeforeEach(func() {
-			createPayload.Relationships.App = nil
-		})
-
-		It("fails", func() {
-			Expect(apiError).To(HaveOccurred())
-			Expect(apiError.Detail()).To(ContainSubstring("relationships.app is required"))
-		})
-	})
-
-	When("the app GUID is blank", func() {
-		BeforeEach(func() {
-			createPayload.Relationships.App.Data.GUID = ""
-		})
-
-		It("fails", func() {
-			Expect(apiError).To(HaveOccurred())
-			Expect(apiError.Detail()).To(ContainSubstring("app.data.guid cannot be blank"))
-		})
-	})
-
-	When("service instance relationship is missing", func() {
-		BeforeEach(func() {
-			createPayload.Relationships.ServiceInstance = nil
-		})
-
-		It("fails", func() {
-			Expect(apiError).To(HaveOccurred())
-			Expect(apiError.Detail()).To(ContainSubstring("relationships.service_instance is required"))
-		})
-	})
-
-	When("the service instance GUID is blank", func() {
-		BeforeEach(func() {
-			createPayload.Relationships.ServiceInstance.Data.GUID = ""
-		})
-
-		It("fails", func() {
-			Expect(apiError).To(HaveOccurred())
-			Expect(apiError.Detail()).To(ContainSubstring("relationships.service_instance.data.guid cannot be blank"))
+		It("creates the message", func() {
+			Expect(createMessage).To(Equal(repositories.CreateServiceBindingMessage{
+				Name:                createPayload.Name,
+				ServiceInstanceGUID: createPayload.Relationships.ServiceInstance.Data.GUID,
+				AppGUID:             createPayload.Relationships.App.Data.GUID,
+				SpaceGUID:           "space-guid",
+				Type:                "app",
+				Parameters: map[string]any{
+					"p1": "p1-value",
+				},
+			}))
 		})
 	})
 })
@@ -182,7 +255,7 @@ var _ = Describe("ServiceBindingUpdate", func() {
 
 	It("succeeds", func() {
 		Expect(validatorErr).NotTo(HaveOccurred())
-		Expect(serviceBindingPatch).To(gstruct.PointTo(Equal(patchPayload)))
+		Expect(serviceBindingPatch).To(PointTo(Equal(patchPayload)))
 	})
 
 	When("metadata uses the cloudfoundry domain", func() {

@@ -54,6 +54,7 @@ type BuilderInfoStatusBuildpack struct {
 //+kubebuilder:resource:path=builderinfos
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=`.metadata.creationTimestamp`
 //+kubebuilder:printcolumn:name="Ready",type="string",JSONPath=`.status.conditions[?(@.type=='Ready')].status`
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // BuilderInfo is the Schema for the builderinfos API
 type BuilderInfo struct {
@@ -64,7 +65,12 @@ type BuilderInfo struct {
 	Status BuilderInfoStatus `json:"status,omitempty"`
 }
 
+func (i *BuilderInfo) StatusConditions() *[]metav1.Condition {
+	return &i.Status.Conditions
+}
+
 //+kubebuilder:object:root=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // BuilderInfoList contains a list of BuilderInfo
 type BuilderInfoList struct {

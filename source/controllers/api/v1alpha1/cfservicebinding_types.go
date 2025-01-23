@@ -23,6 +23,21 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	BindingFailedCondition = "BindingFailed"
+
+	UnbindingFailedCondition = "UnbindingFailed"
+
+	CFServiceBindingTypeKey = "key"
+	CFServiceBindingTypeApp = "app"
+
+	ServiceInstanceTypeAnnotationKey = "korifi.cloudfoundry.org/service-instance-type"
+	PlanGUIDLabelKey                 = "korifi.cloudfoundry.org/plan-guid"
+
+	ServiceBindingGUIDLabel       = "korifi.cloudfoundry.org/service-binding-guid"
+	CFServiceBindingFinalizerName = "cfServiceBinding.korifi.cloudfoundry.org"
+)
+
 // CFServiceBindingSpec defines the desired state of CFServiceBinding
 type CFServiceBindingSpec struct {
 	// The mutable, user-friendly name of the service binding. Unlike metadata.name, the user can change this field
@@ -33,6 +48,14 @@ type CFServiceBindingSpec struct {
 
 	// A reference to the CFApp that owns this service binding. The CFApp must be in the same namespace
 	AppRef v1.LocalObjectReference `json:"appRef"`
+
+	// A reference to the secret that contains the service binding parameters.
+	// Only makes sense for bindings to managed service instances
+	Parameters v1.LocalObjectReference `json:"parameters"`
+
+	// The type of the binding. There are two possible values - "key" or "app"
+	// +kubebuilder:validation:Enum=app;key
+	Type string `json:"type"`
 }
 
 // CFServiceBindingStatus defines the observed state of CFServiceBinding
@@ -46,7 +69,9 @@ type CFServiceBindingStatus struct {
 
 	// A reference to the Secret containing the binding Credentials object. For
 	// bindings to user-provided services this refers to the credentials secret
-	// from the service instance
+	// from the service instance. For managed services the secret contains the
+	// credentials object returned by the broker when binding to a service
+	// instance
 	// +optional
 	Credentials v1.LocalObjectReference `json:"credentials"`
 
@@ -61,6 +86,7 @@ type CFServiceBindingStatus struct {
 //+kubebuilder:subresource:status
 //+kubebuilder:printcolumn:name="Display Name",type=string,JSONPath=`.spec.displayName`
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=`.metadata.creationTimestamp`
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // CFServiceBinding is the Schema for the cfservicebindings API
 type CFServiceBinding struct {
@@ -73,6 +99,7 @@ type CFServiceBinding struct {
 }
 
 //+kubebuilder:object:root=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // CFServiceBindingList contains a list of CFServiceBinding
 type CFServiceBindingList struct {
@@ -81,8 +108,8 @@ type CFServiceBindingList struct {
 	Items           []CFServiceBinding `json:"items"`
 }
 
-func (b CFServiceBinding) StatusConditions() []metav1.Condition {
-	return b.Status.Conditions
+func (b *CFServiceBinding) StatusConditions() *[]metav1.Condition {
+	return &b.Status.Conditions
 }
 
 func (b CFServiceBinding) UniqueName() string {

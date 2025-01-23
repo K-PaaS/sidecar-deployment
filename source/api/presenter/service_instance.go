@@ -4,6 +4,7 @@ import (
 	"net/url"
 
 	"code.cloudfoundry.org/korifi/api/repositories"
+	"code.cloudfoundry.org/korifi/model"
 )
 
 const (
@@ -20,11 +21,12 @@ type ServiceInstanceResponse struct {
 	RouteServiceURL *string       `json:"route_service_url"`
 	SyslogDrainURL  *string       `json:"syslog_drain_url"`
 
-	CreatedAt     string               `json:"created_at"`
-	UpdatedAt     string               `json:"updated_at"`
-	Relationships Relationships        `json:"relationships"`
-	Metadata      Metadata             `json:"metadata"`
-	Links         ServiceInstanceLinks `json:"links"`
+	CreatedAt     string                             `json:"created_at"`
+	UpdatedAt     string                             `json:"updated_at"`
+	Relationships map[string]model.ToOneRelationship `json:"relationships"`
+	Metadata      Metadata                           `json:"metadata"`
+	Links         ServiceInstanceLinks               `json:"links"`
+	Included      map[string][]any                   `json:"included,omitempty"`
 }
 
 type lastOperation struct {
@@ -43,12 +45,7 @@ type ServiceInstanceLinks struct {
 	ServiceRouteBindings      Link `json:"service_route_bindings"`
 }
 
-func ForServiceInstance(serviceInstanceRecord repositories.ServiceInstanceRecord, baseURL url.URL) ServiceInstanceResponse {
-	lastOperationType := "update"
-	if serviceInstanceRecord.UpdatedAt == nil || serviceInstanceRecord.CreatedAt == *serviceInstanceRecord.UpdatedAt {
-		lastOperationType = "create"
-	}
-
+func ForServiceInstance(serviceInstanceRecord repositories.ServiceInstanceRecord, baseURL url.URL, includes ...model.IncludedResource) ServiceInstanceResponse {
 	return ServiceInstanceResponse{
 		Name: serviceInstanceRecord.Name,
 		GUID: serviceInstanceRecord.GUID,
@@ -57,19 +54,13 @@ func ForServiceInstance(serviceInstanceRecord repositories.ServiceInstanceRecord
 		LastOperation: lastOperation{
 			CreatedAt:   formatTimestamp(&serviceInstanceRecord.CreatedAt),
 			UpdatedAt:   formatTimestamp(serviceInstanceRecord.UpdatedAt),
-			Description: "Operation succeeded",
-			State:       "succeeded",
-			Type:        lastOperationType,
+			Description: serviceInstanceRecord.LastOperation.Description,
+			State:       serviceInstanceRecord.LastOperation.State,
+			Type:        serviceInstanceRecord.LastOperation.Type,
 		},
-		CreatedAt: formatTimestamp(&serviceInstanceRecord.CreatedAt),
-		UpdatedAt: formatTimestamp(serviceInstanceRecord.UpdatedAt),
-		Relationships: Relationships{
-			"space": Relationship{
-				Data: &RelationshipData{
-					GUID: serviceInstanceRecord.SpaceGUID,
-				},
-			},
-		},
+		CreatedAt:     formatTimestamp(&serviceInstanceRecord.CreatedAt),
+		UpdatedAt:     formatTimestamp(serviceInstanceRecord.UpdatedAt),
+		Relationships: ForRelationships(serviceInstanceRecord.Relationships()),
 		Metadata: Metadata{
 			Labels:      emptyMapIfNil(serviceInstanceRecord.Labels),
 			Annotations: emptyMapIfNil(serviceInstanceRecord.Annotations),
@@ -91,5 +82,6 @@ func ForServiceInstance(serviceInstanceRecord repositories.ServiceInstanceRecord
 				HRef: buildURL(baseURL).appendPath(serviceRouteBindingsBase).setQuery("service_instance_guids=" + serviceInstanceRecord.GUID).build(),
 			},
 		},
+		Included: includedResources(includes...),
 	}
 }

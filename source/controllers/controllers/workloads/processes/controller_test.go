@@ -97,7 +97,7 @@ var _ = Describe("CFProcessReconciler Integration Tests", func() {
 					GUID:        uuid.NewString(),
 					AppRef:      corev1.LocalObjectReference{Name: cfApp.Name},
 					ProcessType: korifiv1alpha1.ProcessTypeWeb,
-					Port:        tools.PtrTo(8080),
+					Port:        tools.PtrTo[int32](8080),
 					Protocol:    tools.PtrTo("http1"),
 				}},
 			},
@@ -149,7 +149,7 @@ var _ = Describe("CFProcessReconciler Integration Tests", func() {
 				ProcessType:      korifiv1alpha1.ProcessTypeWeb,
 				Command:          "process command",
 				DetectedCommand:  "detected-command",
-				DesiredInstances: tools.PtrTo(1),
+				DesiredInstances: tools.PtrTo[int32](1),
 				MemoryMB:         1024,
 				DiskQuotaMB:      100,
 			},
@@ -164,7 +164,7 @@ var _ = Describe("CFProcessReconciler Integration Tests", func() {
 		Eventually(func(g Gomega) {
 			g.Expect(adminClient.Get(ctx, client.ObjectKeyFromObject(cfProcess), cfProcess)).To(Succeed())
 			g.Expect(cfProcess.OwnerReferences).To(ConsistOf(metav1.OwnerReference{
-				APIVersion:         korifiv1alpha1.GroupVersion.Identifier(),
+				APIVersion:         korifiv1alpha1.SchemeGroupVersion.Identifier(),
 				Kind:               "CFApp",
 				Name:               cfApp.Name,
 				UID:                cfApp.UID,
@@ -191,7 +191,7 @@ var _ = Describe("CFProcessReconciler Integration Tests", func() {
 		It("reconciles the CFProcess into an AppWorkload", func() {
 			eventuallyCreatedAppWorkloadShould(func(g Gomega, appWorkload korifiv1alpha1.AppWorkload) {
 				g.Expect(appWorkload.OwnerReferences).To(ConsistOf(metav1.OwnerReference{
-					APIVersion:         korifiv1alpha1.GroupVersion.Identifier(),
+					APIVersion:         korifiv1alpha1.SchemeGroupVersion.Identifier(),
 					Kind:               "CFProcess",
 					Name:               cfProcess.Name,
 					UID:                cfProcess.UID,
@@ -390,7 +390,7 @@ var _ = Describe("CFProcessReconciler Integration Tests", func() {
 			JustBeforeEach(func() {
 				eventuallyCreatedAppWorkloadShould(func(g Gomega, appWorkload korifiv1alpha1.AppWorkload) {})
 				Expect(k8s.Patch(ctx, adminClient, cfProcess, func() {
-					cfProcess.Spec.DesiredInstances = tools.PtrTo(0)
+					cfProcess.Spec.DesiredInstances = tools.PtrTo[int32](0)
 				})).To(Succeed())
 			})
 

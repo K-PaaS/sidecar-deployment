@@ -1,9 +1,9 @@
 package repositories_test
 
 import (
-	"context"
 	"time"
 
+	"code.cloudfoundry.org/korifi/api/authorization"
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	"code.cloudfoundry.org/korifi/api/repositories"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
@@ -11,6 +11,7 @@ import (
 	"code.cloudfoundry.org/korifi/tools"
 	"code.cloudfoundry.org/korifi/tools/k8s"
 
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gstruct"
@@ -31,7 +32,6 @@ var _ = Describe("DropletRepository", func() {
 	)
 
 	var (
-		testCtx     context.Context
 		dropletRepo *repositories.DropletRepo
 		org         *korifiv1alpha1.CFOrg
 		space       *korifiv1alpha1.CFSpace
@@ -41,23 +41,30 @@ var _ = Describe("DropletRepository", func() {
 	)
 
 	BeforeEach(func() {
-		testCtx = context.Background()
 		orgName := prefixedGUID("org-")
 		spaceName := prefixedGUID("space-")
 		packageGUID = prefixedGUID("package-")
 		buildGUID = prefixedGUID("build-")
-		org = createOrgWithCleanup(testCtx, orgName)
-		space = createSpaceWithCleanup(testCtx, org.Name, spaceName)
+		org = createOrgWithCleanup(ctx, orgName)
+		space = createSpaceWithCleanup(ctx, org.Name, spaceName)
 
-		dropletRepo = repositories.NewDropletRepo(userClientFactory, namespaceRetriever, nsPerms)
+		dropletRepo = repositories.NewDropletRepo(
+			userClientFactory.WithWrappingFunc(func(client client.WithWatch) client.WithWatch {
+				return authorization.NewSpaceFilteringClient(client, k8sClient, nsPerms)
+			}),
+			namespaceRetriever,
+		)
 
 		build = &korifiv1alpha1.CFBuild{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      buildGUID,
 				Namespace: space.Name,
 				Labels: map[string]string{
-					"key1": "val1",
-					"key2": "val2",
+					"key1":                               "val1",
+					"key2":                               "val2",
+					korifiv1alpha1.CFPackageGUIDLabelKey: packageGUID,
+					korifiv1alpha1.CFAppGUIDLabelKey:     appGUID,
+					korifiv1alpha1.SpaceGUIDKey:          space.Name,
 				},
 				Annotations: map[string]string{
 					"key1": "val1",
@@ -78,7 +85,7 @@ var _ = Describe("DropletRepository", func() {
 				},
 			},
 		}
-		Expect(k8sClient.Create(testCtx, build)).To(Succeed())
+		Expect(k8sClient.Create(ctx, build)).To(Succeed())
 	})
 
 	Describe("GetDroplet", func() {
@@ -93,17 +100,17 @@ var _ = Describe("DropletRepository", func() {
 		})
 
 		JustBeforeEach(func() {
-			dropletRecord, fetchErr = dropletRepo.GetDroplet(testCtx, authInfo, fetchBuildGUID)
+			dropletRecord, fetchErr = dropletRepo.GetDroplet(ctx, authInfo, fetchBuildGUID)
 		})
 
 		When("the user is authorized to get the droplet", func() {
 			BeforeEach(func() {
-				createRoleBinding(testCtx, userName, spaceDeveloperRole.Name, space.Name)
+				createRoleBinding(ctx, userName, spaceDeveloperRole.Name, space.Name)
 			})
 
 			When("status.Droplet is set", func() {
 				BeforeEach(func() {
-					Expect(k8s.Patch(testCtx, k8sClient, build, func() {
+					Expect(k8s.Patch(ctx, k8sClient, build, func() {
 						meta.SetStatusCondition(&build.Status.Conditions, metav1.Condition{
 							Type:    "Staging",
 							Status:  metav1.ConditionFalse,
@@ -156,8 +163,11 @@ var _ = Describe("DropletRepository", func() {
 					Expect(dropletRecord.AppGUID).To(Equal(build.Spec.AppRef.Name))
 					Expect(dropletRecord.PackageGUID).To(Equal(build.Spec.PackageRef.Name))
 					Expect(dropletRecord.Labels).To(Equal(map[string]string{
-						"key1": "val1",
-						"key2": "val2",
+						"key1":                               "val1",
+						"key2":                               "val2",
+						korifiv1alpha1.CFPackageGUIDLabelKey: packageGUID,
+						korifiv1alpha1.CFAppGUIDLabelKey:     appGUID,
+						korifiv1alpha1.SpaceGUIDKey:          space.Name,
 					}))
 					Expect(dropletRecord.Annotations).To(Equal(map[string]string{
 						"key1": "val1",
@@ -168,6 +178,10 @@ var _ = Describe("DropletRepository", func() {
 					for index := range processTypesArray {
 						Expect(dropletRecord.ProcessTypes).To(HaveKeyWithValue(processTypesArray[index].Type, processTypesArray[index].Command))
 					}
+
+					Expect(dropletRecord.Relationships()).To(Equal(map[string]string{
+						"app": build.Spec.AppRef.Name,
+					}))
 				})
 
 				When("the droplet is of type docker", func() {
@@ -201,7 +215,7 @@ var _ = Describe("DropletRepository", func() {
 							Reason:  "Unknown",
 							Message: "Unknown",
 						})
-						Expect(k8sClient.Status().Update(testCtx, build)).To(Succeed())
+						Expect(k8sClient.Status().Update(ctx, build)).To(Succeed())
 					})
 
 					It("should return a NotFound error", func() {
@@ -223,7 +237,7 @@ var _ = Describe("DropletRepository", func() {
 							Reason:  "Unknown",
 							Message: "Unknown",
 						})
-						Expect(k8sClient.Status().Update(testCtx, build)).To(Succeed())
+						Expect(k8sClient.Status().Update(ctx, build)).To(Succeed())
 					})
 
 					It("should return a NotFound error", func() {
@@ -245,7 +259,7 @@ var _ = Describe("DropletRepository", func() {
 							Reason:  "Unknown",
 							Message: "Unknown",
 						})
-						Expect(k8sClient.Status().Update(testCtx, build)).To(Succeed())
+						Expect(k8sClient.Status().Update(ctx, build)).To(Succeed())
 					})
 
 					It("should return a NotFound error", func() {
@@ -291,7 +305,7 @@ var _ = Describe("DropletRepository", func() {
 						Ports: []int32{8080, 443},
 					}
 					// Update Build Status based on changes made to local copy
-					Expect(k8sClient.Status().Update(testCtx, build)).To(Succeed())
+					Expect(k8sClient.Status().Update(ctx, build)).To(Succeed())
 					fetchBuildGUID = "i don't exist"
 				})
 
@@ -313,80 +327,78 @@ var _ = Describe("DropletRepository", func() {
 		var (
 			dropletRecords []repositories.DropletRecord
 			listErr        error
+			message        repositories.ListDropletsMessage
 		)
 
 		BeforeEach(func() {
-			meta.SetStatusCondition(&build.Status.Conditions, metav1.Condition{
-				Type:    "Staging",
-				Status:  metav1.ConditionFalse,
-				Reason:  "kpack",
-				Message: "kpack",
-			})
-			meta.SetStatusCondition(&build.Status.Conditions, metav1.Condition{
-				Type:    "Succeeded",
-				Status:  metav1.ConditionTrue,
-				Reason:  "Unknown",
-				Message: "Unknown",
-			})
-			build.Status.Droplet = &korifiv1alpha1.BuildDropletStatus{
-				Stack: dropletStack,
-				Registry: korifiv1alpha1.Registry{
-					Image: registryImage,
-					ImagePullSecrets: []corev1.LocalObjectReference{
-						{
-							Name: registryImageSecret,
-						},
+			message = repositories.ListDropletsMessage{}
+
+			Expect(k8s.Patch(ctx, k8sClient, build, func() {
+				build.Status.Droplet = &korifiv1alpha1.BuildDropletStatus{}
+			})).To(Succeed())
+
+			anotherBuild := &korifiv1alpha1.CFBuild{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      uuid.NewString(),
+					Namespace: space.Name,
+					Labels: map[string]string{
+						korifiv1alpha1.CFPackageGUIDLabelKey: uuid.NewString(),
+						korifiv1alpha1.CFAppGUIDLabelKey:     uuid.NewString(),
+						korifiv1alpha1.SpaceGUIDKey:          space.Name,
 					},
 				},
-				ProcessTypes: []korifiv1alpha1.ProcessType{
-					{
-						Type:    "rake",
-						Command: "bundle exec rake",
-					},
-					{
-						Type:    "web",
-						Command: "bundle exec rackup config.ru -p $PORT",
+				Spec: korifiv1alpha1.CFBuildSpec{
+					Lifecycle: korifiv1alpha1.Lifecycle{
+						Type: "buildpack",
 					},
 				},
-				Ports: []int32{8080, 443},
 			}
-			// Update Build Status based on changes made to local copy
-			Expect(k8sClient.Status().Update(testCtx, build)).To(Succeed())
+			Expect(k8sClient.Create(ctx, anotherBuild)).To(Succeed())
+			Expect(k8s.Patch(ctx, k8sClient, anotherBuild, func() {
+				anotherBuild.Status.Droplet = &korifiv1alpha1.BuildDropletStatus{}
+			})).To(Succeed())
 		})
 
 		JustBeforeEach(func() {
-			dropletRecords, listErr = dropletRepo.ListDroplets(testCtx, authInfo, repositories.ListDropletsMessage{
-				PackageGUIDs: []string{packageGUID},
-			})
+			dropletRecords, listErr = dropletRepo.ListDroplets(ctx, authInfo, message)
 		})
 
-		When("the user is not authorized to list the droplet", func() {
-			It("returns an empty list to users who lack access", func() {
-				Expect(listErr).NotTo(HaveOccurred())
-				Expect(dropletRecords).To(BeEmpty())
-			})
+		It("returns an empty list to users who lack access", func() {
+			Expect(listErr).NotTo(HaveOccurred())
+			Expect(dropletRecords).To(BeEmpty())
 		})
 
-		When("the user is a space manager", func() {
+		When("the user is a space developer", func() {
 			BeforeEach(func() {
-				createRoleBinding(testCtx, userName, spaceDeveloperRole.Name, space.Name)
+				createRoleBinding(ctx, userName, spaceDeveloperRole.Name, space.Name)
 			})
 
-			It("returns a list of droplet records with the packageGUID label set on them", func() {
+			It("returns the droplets", func() {
 				Expect(listErr).NotTo(HaveOccurred())
-				Expect(dropletRecords).To(HaveLen(1))
-				Expect(dropletRecords[0].GUID).To(Equal(build.Name))
+				Expect(dropletRecords).To(HaveLen(2))
 			})
 
-			When("a space exists with a rolebinding for the user, but without permission to list droplets", func() {
+			When("filtering by package guid", func() {
 				BeforeEach(func() {
-					anotherSpace := createSpaceWithCleanup(testCtx, org.Name, "space-without-droplet-space-perm")
-					createRoleBinding(testCtx, userName, rootNamespaceUserRole.Name, anotherSpace.Name)
+					message.PackageGUIDs = []string{packageGUID}
 				})
 
-				It("returns the droplet", func() {
+				It("returns the matching droplet", func() {
 					Expect(listErr).NotTo(HaveOccurred())
 					Expect(dropletRecords).To(HaveLen(1))
+					Expect(dropletRecords[0].PackageGUID).To(Equal(packageGUID))
+				})
+			})
+
+			When("filtering by app guid", func() {
+				BeforeEach(func() {
+					message.AppGUIDs = []string{appGUID}
+				})
+
+				It("returns the matching droplet", func() {
+					Expect(listErr).NotTo(HaveOccurred())
+					Expect(dropletRecords).To(HaveLen(1))
+					Expect(dropletRecords[0].AppGUID).To(Equal(appGUID))
 				})
 			})
 		})
@@ -423,7 +435,7 @@ var _ = Describe("DropletRepository", func() {
 
 		When("the user is authorized to get the droplet", func() {
 			BeforeEach(func() {
-				createRoleBinding(testCtx, userName, spaceDeveloperRole.Name, space.Name)
+				createRoleBinding(ctx, userName, spaceDeveloperRole.Name, space.Name)
 			})
 
 			When("status.Droplet is set", func() {
@@ -463,7 +475,7 @@ var _ = Describe("DropletRepository", func() {
 						Ports: []int32{8080, 443},
 					}
 					// Update Build Status based on changes made to local copy
-					Expect(k8sClient.Status().Update(testCtx, build)).To(Succeed())
+					Expect(k8sClient.Status().Update(ctx, build)).To(Succeed())
 				})
 
 				It("updates the build metadata in kubernetes", func() {
@@ -522,8 +534,11 @@ var _ = Describe("DropletRepository", func() {
 
 					By("returns a record with a Label field matching the CR", func() {
 						Expect(dropletRecord.Labels).To(Equal(map[string]string{
-							"key1": "val1edit",
-							"key3": "val3",
+							"key1":                               "val1edit",
+							"key3":                               "val3",
+							korifiv1alpha1.CFPackageGUIDLabelKey: packageGUID,
+							korifiv1alpha1.CFAppGUIDLabelKey:     appGUID,
+							korifiv1alpha1.SpaceGUIDKey:          space.Name,
 						}))
 					})
 
@@ -551,7 +566,7 @@ var _ = Describe("DropletRepository", func() {
 							Reason:  "Unknown",
 							Message: "Unknown",
 						})
-						Expect(k8sClient.Status().Update(testCtx, build)).To(Succeed())
+						Expect(k8sClient.Status().Update(ctx, build)).To(Succeed())
 					})
 
 					It("should return a NotFound error", func() {
@@ -573,7 +588,7 @@ var _ = Describe("DropletRepository", func() {
 							Reason:  "Unknown",
 							Message: "Unknown",
 						})
-						Expect(k8sClient.Status().Update(testCtx, build)).To(Succeed())
+						Expect(k8sClient.Status().Update(ctx, build)).To(Succeed())
 					})
 
 					It("should return a NotFound error", func() {
@@ -595,7 +610,7 @@ var _ = Describe("DropletRepository", func() {
 							Reason:  "Unknown",
 							Message: "Unknown",
 						})
-						Expect(k8sClient.Status().Update(testCtx, build)).To(Succeed())
+						Expect(k8sClient.Status().Update(ctx, build)).To(Succeed())
 					})
 
 					It("should return a NotFound error", func() {
@@ -641,7 +656,7 @@ var _ = Describe("DropletRepository", func() {
 						Ports: []int32{8080, 443},
 					}
 					// Update Build Status based on changes made to local copy
-					Expect(k8sClient.Status().Update(testCtx, build)).To(Succeed())
+					Expect(k8sClient.Status().Update(ctx, build)).To(Succeed())
 					dropletUpdateMsg.GUID = "i don't exist"
 				})
 

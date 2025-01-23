@@ -30,7 +30,12 @@ import (
 	"code.cloudfoundry.org/korifi/controllers/controllers/networking/domains"
 	"code.cloudfoundry.org/korifi/controllers/controllers/networking/routes"
 	"code.cloudfoundry.org/korifi/controllers/controllers/services/bindings"
-	"code.cloudfoundry.org/korifi/controllers/controllers/services/instances"
+	managed_bindings "code.cloudfoundry.org/korifi/controllers/controllers/services/bindings/managed"
+	upsi_bindings "code.cloudfoundry.org/korifi/controllers/controllers/services/bindings/upsi"
+	"code.cloudfoundry.org/korifi/controllers/controllers/services/brokers"
+	"code.cloudfoundry.org/korifi/controllers/controllers/services/instances/managed"
+	upsi_instances "code.cloudfoundry.org/korifi/controllers/controllers/services/instances/upsi"
+	"code.cloudfoundry.org/korifi/controllers/controllers/services/osbapi"
 	"code.cloudfoundry.org/korifi/controllers/controllers/shared"
 	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/apps"
 	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/build/buildpack"
@@ -46,7 +51,9 @@ import (
 	controllersfinalizer "code.cloudfoundry.org/korifi/controllers/webhooks/finalizer"
 	domainswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/networking/domains"
 	routeswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/networking/routes"
+	"code.cloudfoundry.org/korifi/controllers/webhooks/relationships"
 	bindingswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/services/bindings"
+	brokerswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/services/brokers"
 	instanceswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/services/instances"
 	"code.cloudfoundry.org/korifi/controllers/webhooks/validation"
 	versionwebhook "code.cloudfoundry.org/korifi/controllers/webhooks/version"
@@ -55,14 +62,8 @@ import (
 	packageswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/workloads/packages"
 	spaceswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/workloads/spaces"
 	taskswebhook "code.cloudfoundry.org/korifi/controllers/webhooks/workloads/tasks"
-	jobtaskrunnercontrollers "code.cloudfoundry.org/korifi/job-task-runner/controllers"
-	"code.cloudfoundry.org/korifi/kpack-image-builder/controllers"
-	kpackimagebuilderfinalizer "code.cloudfoundry.org/korifi/kpack-image-builder/controllers/webhooks/finalizer"
-	statesetfulrunnerv1 "code.cloudfoundry.org/korifi/statefulset-runner/api/v1"
-	statefulsetcontrollers "code.cloudfoundry.org/korifi/statefulset-runner/controllers"
 	"code.cloudfoundry.org/korifi/tools"
 	"code.cloudfoundry.org/korifi/tools/image"
-	"code.cloudfoundry.org/korifi/tools/registry"
 	"code.cloudfoundry.org/korifi/version"
 
 	buildv1alpha2 "github.com/pivotal/kpack/pkg/apis/build/v1alpha2"
@@ -164,12 +165,13 @@ func main() {
 	}
 
 	if os.Getenv("ENABLE_CONTROLLERS") != "false" {
+		controllersLog := ctrl.Log.WithName("controllers")
 		imageClient := image.NewClient(k8sClient)
 
 		if err = apps.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
-			ctrl.Log.WithName("controllers").WithName("CFApp"),
+			controllersLog,
 			env.NewVCAPServicesEnvValueBuilder(mgr.GetClient()),
 			env.NewVCAPApplicationEnvValueBuilder(mgr.GetClient(), controllerConfig.ExtraVCAPApplicationValues),
 		).SetupWithManager(mgr); err != nil {
@@ -182,7 +184,7 @@ func main() {
 			mgr.GetClient(),
 			buildCleaner,
 			mgr.GetScheme(),
-			ctrl.Log.WithName("controllers").WithName("CFBuildpackBuild"),
+			controllersLog,
 			controllerConfig,
 			env.NewAppEnvBuilder(mgr.GetClient()),
 		).SetupWithManager(mgr); err != nil {
@@ -195,7 +197,7 @@ func main() {
 			buildCleaner,
 			imageClient,
 			mgr.GetScheme(),
-			ctrl.Log.WithName("controllers").WithName("CFDockerBuild"),
+			controllersLog,
 		).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "CFDockerBuild")
 			os.Exit(1)
@@ -204,7 +206,7 @@ func main() {
 		if err = packages.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
-			ctrl.Log.WithName("controllers").WithName("CFPackage"),
+			controllersLog,
 			imageClient,
 			cleanup.NewPackageCleaner(mgr.GetClient(), controllerConfig.MaxRetainedPackagesPerApp),
 			controllerConfig.ContainerRegistrySecretNames,
@@ -216,7 +218,7 @@ func main() {
 		if err = processes.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
-			ctrl.Log.WithName("controllers").WithName("CFProcess"),
+			controllersLog,
 			controllerConfig,
 			env.NewProcessEnvBuilder(mgr.GetClient()),
 		).SetupWithManager(mgr); err != nil {
@@ -224,19 +226,26 @@ func main() {
 			os.Exit(1)
 		}
 
-		if err = (instances.NewReconciler(
+		if err = (upsi_instances.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
-			ctrl.Log.WithName("controllers").WithName("CFServiceInstance"),
+			controllersLog,
 		)).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "CFServiceInstance")
+			setupLog.Error(err, "unable to create controller", "controller", "UPSICFServiceInstance")
 			os.Exit(1)
 		}
 
 		if err = (bindings.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
-			ctrl.Log.WithName("controllers").WithName("CFServiceBinding"),
+			controllersLog,
+			upsi_bindings.NewReconciler(mgr.GetClient(), mgr.GetScheme()),
+			managed_bindings.NewReconciler(
+				mgr.GetClient(),
+				osbapi.NewClientFactory(mgr.GetClient(), controllerConfig.TrustInsecureServiceBrokers),
+				controllerConfig.CFRootNamespace,
+				mgr.GetScheme(),
+			),
 		)).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "CFServiceBinding")
 			os.Exit(1)
@@ -251,7 +260,7 @@ func main() {
 
 		if err = orgs.NewReconciler(
 			mgr.GetClient(),
-			ctrl.Log.WithName("controllers").WithName("CFOrg"),
+			controllersLog,
 			controllerConfig.ContainerRegistrySecretNames,
 			labelCompiler,
 		).SetupWithManager(mgr); err != nil {
@@ -261,7 +270,7 @@ func main() {
 
 		if err = spaces.NewReconciler(
 			mgr.GetClient(),
-			ctrl.Log.WithName("controllers").WithName("CFSpace"),
+			controllersLog,
 			controllerConfig.ContainerRegistrySecretNames,
 			controllerConfig.CFRootNamespace,
 			*controllerConfig.SpaceFinalizerAppDeletionTimeout,
@@ -282,7 +291,7 @@ func main() {
 			mgr.GetClient(),
 			mgr.GetScheme(),
 			mgr.GetEventRecorderFor("cftask-controller"),
-			ctrl.Log.WithName("controllers").WithName("CFTask"),
+			controllersLog,
 			env.NewAppEnvBuilder(mgr.GetClient()),
 			taskTTL,
 		).SetupWithManager(mgr); err != nil {
@@ -293,11 +302,35 @@ func main() {
 		if err = domains.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
-			ctrl.Log.WithName("controllers").WithName("CFDomain"),
+			controllersLog,
 		).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "CFDomain")
 			os.Exit(1)
 		}
+
+		if controllerConfig.ExperimentalManagedServicesEnabled {
+			if err = brokers.NewReconciler(
+				mgr.GetClient(),
+				osbapi.NewClientFactory(mgr.GetClient(), controllerConfig.TrustInsecureServiceBrokers),
+				mgr.GetScheme(),
+				controllersLog,
+			).SetupWithManager(mgr); err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "CFServiceBroker")
+				os.Exit(1)
+			}
+
+			if err = managed.NewReconciler(
+				mgr.GetClient(),
+				osbapi.NewClientFactory(mgr.GetClient(), controllerConfig.TrustInsecureServiceBrokers),
+				mgr.GetScheme(),
+				controllerConfig.CFRootNamespace,
+				controllersLog,
+			).SetupWithManager(mgr); err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "ManagedCFServiceInstance")
+				os.Exit(1)
+			}
+		}
+
 		//+kubebuilder:scaffold:builder
 
 		// Setup Index with Manager
@@ -307,102 +340,10 @@ func main() {
 			os.Exit(1)
 		}
 
-		if controllerConfig.IncludeKpackImageBuilder {
-			var builderReadinessTimeout time.Duration
-			builderReadinessTimeout, err = controllerConfig.ParseBuilderReadinessTimeout()
-			if err != nil {
-				setupLog.Error(err, "error parsing builderReadinessTimeout")
-				os.Exit(1)
-			}
-			if err = controllers.NewBuildWorkloadReconciler(
-				mgr.GetClient(),
-				mgr.GetScheme(),
-				ctrl.Log.WithName("controllers").WithName("BuildWorkloadReconciler"),
-				controllerConfig,
-				imageClient,
-				controllerConfig.ContainerRepositoryPrefix,
-				registry.NewRepositoryCreator(controllerConfig.ContainerRegistryType),
-				builderReadinessTimeout,
-			).SetupWithManager(mgr); err != nil {
-				setupLog.Error(err, "unable to create controller", "controller", "BuildWorkload")
-				os.Exit(1)
-			}
-
-			if err = controllers.NewBuilderInfoReconciler(
-				mgr.GetClient(),
-				mgr.GetScheme(),
-				ctrl.Log.WithName("controllers").WithName("BuilderInfoReconciler"),
-				controllerConfig.ClusterBuilderName,
-				controllerConfig.CFRootNamespace,
-			).SetupWithManager(mgr); err != nil {
-				setupLog.Error(err, "unable to create controller", "controller", "BuilderInfo")
-				os.Exit(1)
-			}
-
-			if err = controllers.NewKpackBuildController(
-				mgr.GetClient(),
-				ctrl.Log.WithName("kpack-image-builder").WithName("KpackBuild"),
-				imageClient,
-				controllerConfig.BuilderServiceAccount,
-			).SetupWithManager(mgr); err != nil {
-				setupLog.Error(err, "unable to create controller", "controller", "KpackBuild")
-				os.Exit(1)
-			}
-		}
-
-		if controllerConfig.IncludeJobTaskRunner {
-			logger := ctrl.Log.WithName("controllers").WithName("TaskWorkload")
-			var jobTTL time.Duration
-			jobTTL, err = controllerConfig.ParseJobTTL()
-			if err != nil {
-				panic(err)
-			}
-
-			taskWorkloadReconciler := jobtaskrunnercontrollers.NewTaskWorkloadReconciler(
-				logger,
-				mgr.GetClient(),
-				mgr.GetScheme(),
-				jobtaskrunnercontrollers.NewStatusGetter(logger, mgr.GetClient()),
-				jobTTL,
-				controllerConfig.JobTaskRunnerTemporarySetPodSeccompProfile,
-			)
-			if err = taskWorkloadReconciler.SetupWithManager(mgr); err != nil {
-				setupLog.Error(err, "unable to create controller", "controller", "TaskWorkload")
-				os.Exit(1)
-			}
-		}
-
-		if controllerConfig.IncludeStatefulsetRunner {
-			logger := ctrl.Log.WithName("controllers").WithName("AppWorkload")
-			if err = statefulsetcontrollers.NewAppWorkloadReconciler(
-				mgr.GetClient(),
-				mgr.GetScheme(),
-				statefulsetcontrollers.NewAppWorkloadToStatefulsetConverter(
-					mgr.GetScheme(),
-					controllerConfig.StatefulsetRunnerTemporarySetPodSeccompProfile,
-				),
-				statefulsetcontrollers.NewPDBUpdater(mgr.GetClient()),
-				logger,
-			).SetupWithManager(mgr); err != nil {
-				setupLog.Error(err, "unable to create controller", "controller", "AppWorkload")
-				os.Exit(1)
-			}
-
-			logger = ctrl.Log.WithName("controllers").WithName("RunnerInfo")
-			if err = statefulsetcontrollers.NewRunnerInfoReconciler(
-				mgr.GetClient(),
-				mgr.GetScheme(),
-				logger,
-			).SetupWithManager(mgr); err != nil {
-				setupLog.Error(err, "unable to create controller", "controller", "RunnerInfo")
-				os.Exit(1)
-			}
-		}
-
 		if err = routes.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetScheme(),
-			ctrl.Log.WithName("controllers").WithName("CFRoute"),
+			controllersLog,
 			controllerConfig,
 		).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "CFRoute")
@@ -500,6 +441,13 @@ func main() {
 			os.Exit(1)
 		}
 
+		if err = brokerswebhook.NewValidator(
+			validation.NewDuplicateValidator(coordination.NewNameRegistry(uncachedClient, brokerswebhook.ServiceBrokerEntityType)),
+		).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "CFServiceBroker")
+			os.Exit(1)
+		}
+
 		if err = (&korifiv1alpha1.CFRoute{}).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "CFRoute")
 			os.Exit(1)
@@ -523,16 +471,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		if controllerConfig.IncludeStatefulsetRunner {
-			if err = statesetfulrunnerv1.NewSTSPodDefaulter().SetupWebhookWithManager(mgr); err != nil {
-				setupLog.Error(err, "unable to create webhook", "webhook", "Pod")
-				os.Exit(1)
-			}
-		}
-
-		if controllerConfig.IncludeKpackImageBuilder {
-			kpackimagebuilderfinalizer.NewKpackImageBuilderFinalizerWebhook().SetupWebhookWithManager(mgr)
-		}
+		relationships.NewSpaceGUIDWebhook().SetupWebhookWithManager(mgr)
 
 		if err = mgr.AddReadyzCheck("readyz", mgr.GetWebhookServer().StartedChecker()); err != nil {
 			setupLog.Error(err, "unable to set up ready check")

@@ -3,6 +3,8 @@ package manifest
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"code.cloudfoundry.org/korifi/api/actions/shared"
@@ -10,8 +12,8 @@ import (
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	"code.cloudfoundry.org/korifi/api/payloads"
 	"code.cloudfoundry.org/korifi/api/repositories"
+	"code.cloudfoundry.org/korifi/api/tools/singleton"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
-	"golang.org/x/exp/maps"
 )
 
 type Applier struct {
@@ -123,9 +125,16 @@ func (a *Applier) createOrUpdateRoute(ctx context.Context, authInfo authorizatio
 
 	hostName, domainName, path := splitRoute(routeString)
 
-	domainRecord, err := a.domainRepo.GetDomainByName(ctx, authInfo, domainName)
+	domains, err := a.domainRepo.ListDomains(ctx, authInfo, repositories.ListDomainsMessage{
+		Names: []string{domainName},
+	})
 	if err != nil {
-		return fmt.Errorf("getDomainByName: %w", err)
+		return fmt.Errorf("failed to list domains: %w", err)
+	}
+
+	domain, err := singleton.Get(domains)
+	if err != nil {
+		return err
 	}
 
 	routeRecord, err := a.routeRepo.GetOrCreateRoute(
@@ -135,19 +144,19 @@ func (a *Applier) createOrUpdateRoute(ctx context.Context, authInfo authorizatio
 			Host:            hostName,
 			Path:            path,
 			SpaceGUID:       appState.App.SpaceGUID,
-			DomainGUID:      domainRecord.GUID,
-			DomainNamespace: domainRecord.Namespace,
-			DomainName:      domainRecord.Name,
+			DomainGUID:      domain.GUID,
+			DomainNamespace: domain.Namespace,
+			DomainName:      domain.Name,
 		})
 	if err != nil {
 		return fmt.Errorf("getOrCreateRoute: %w", err)
 	}
 
-	_, err = a.routeRepo.AddDestinationsToRoute(ctx, authInfo, repositories.AddDestinationsToRouteMessage{
+	_, err = a.routeRepo.AddDestinationsToRoute(ctx, authInfo, repositories.AddDestinationsMessage{
 		RouteGUID:            routeRecord.GUID,
 		SpaceGUID:            routeRecord.SpaceGUID,
 		ExistingDestinations: routeRecord.Destinations,
-		NewDestinations: []repositories.DestinationMessage{{
+		NewDestinations: []repositories.DesiredDestination{{
 			AppGUID:     appState.App.GUID,
 			ProcessType: korifiv1alpha1.ProcessTypeWeb,
 		}},
@@ -166,15 +175,12 @@ func (a *Applier) deleteAppDestinations(
 	existingAppRoutes map[string]repositories.RouteRecord,
 ) error {
 	for _, route := range existingAppRoutes {
-		existingDestinations := route.Destinations
-
 		for _, destination := range route.Destinations {
 			if destination.AppGUID != appGUID {
 				continue
 			}
 
-			var err error
-			existingDestinations, err = a.deleteAppDestination(ctx, authInfo, route, destination.GUID, existingDestinations)
+			err := a.deleteAppDestination(ctx, authInfo, route, destination.GUID)
 			if err != nil {
 				return err
 			}
@@ -183,65 +189,63 @@ func (a *Applier) deleteAppDestinations(
 	return nil
 }
 
-func (a *Applier) deleteAppDestination(ctx context.Context, authInfo authorization.Info, route repositories.RouteRecord, destinationGUID string, existingDestinations []repositories.DestinationRecord) ([]repositories.DestinationRecord, error) {
-	route, err := a.routeRepo.RemoveDestinationFromRoute(ctx, authInfo, repositories.RemoveDestinationFromRouteMessage{
-		RouteGUID:       route.GUID,
-		SpaceGUID:       route.SpaceGUID,
-		DestinationGuid: destinationGUID,
+func (a *Applier) deleteAppDestination(ctx context.Context, authInfo authorization.Info, route repositories.RouteRecord, destinationGUID string) error {
+	_, err := a.routeRepo.RemoveDestinationFromRoute(ctx, authInfo, repositories.RemoveDestinationMessage{
+		RouteGUID: route.GUID,
+		SpaceGUID: route.SpaceGUID,
+		GUID:      destinationGUID,
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	return route.Destinations, nil
+	return err
 }
 
 func (a *Applier) applyServices(ctx context.Context, authInfo authorization.Info, appInfo payloads.ManifestApplication, appState AppState) error {
-	desiredServiceNames := map[string]bool{}
+	manifestServiceNames := map[string]bool{}
 	for _, s := range appInfo.Services {
-		desiredServiceNames[s.Name] = true
+		manifestServiceNames[s.Name] = true
 	}
 	for serviceName := range appState.ServiceBindings {
-		delete(desiredServiceNames, serviceName)
+		delete(manifestServiceNames, serviceName)
 	}
 
-	if len(desiredServiceNames) == 0 {
+	if len(manifestServiceNames) == 0 {
 		return nil
 	}
 
 	serviceInstances, err := a.serviceInstanceRepo.ListServiceInstances(ctx, authInfo, repositories.ListServiceInstanceMessage{
-		Names: maps.Keys(desiredServiceNames),
+		Names: slices.Collect(maps.Keys(manifestServiceNames)),
 	})
 	if err != nil {
 		return err
 	}
 
-	serviceNameToServiceInstance := map[string]repositories.ServiceInstanceRecord{}
+	serviceGUIDToInstanceRecord := map[string]repositories.ServiceInstanceRecord{}
 	for _, serviceInstance := range serviceInstances {
-		serviceNameToServiceInstance[serviceInstance.Name] = serviceInstance
+		serviceGUIDToInstanceRecord[serviceInstance.Name] = serviceInstance
 	}
 
-	serviceNameToServiceBinding := map[string]*string{}
-	for _, manifestService := range appInfo.Services {
-		serviceNameToServiceBinding[manifestService.Name] = manifestService.BindingName
-	}
-
-	for serviceName := range desiredServiceNames {
-		serviceInstance, ok := serviceNameToServiceInstance[serviceName]
+	for manifestServiceName := range manifestServiceNames {
+		serviceInstanceRecord, ok := serviceGUIDToInstanceRecord[manifestServiceName]
 		if !ok {
 			return apierrors.NewNotFoundError(
 				nil,
 				repositories.ServiceInstanceResourceType,
 				"application", appInfo.Name,
-				"service", serviceName,
+				"service", manifestServiceName,
 			)
 		}
 
-		_, err := a.serviceBindingRepo.CreateServiceBinding(ctx, authInfo, repositories.CreateServiceBindingMessage{
-			Name:                serviceNameToServiceBinding[serviceName],
-			ServiceInstanceGUID: serviceInstance.GUID,
+		manifestService, err := getManifestService(appInfo, manifestServiceName)
+		if err != nil {
+			return apierrors.NewUnknownError(err)
+		}
+
+		_, err = a.serviceBindingRepo.CreateServiceBinding(ctx, authInfo, repositories.CreateServiceBindingMessage{
+			Type:                korifiv1alpha1.CFServiceBindingTypeApp,
+			Name:                manifestService.BindingName,
+			ServiceInstanceGUID: serviceInstanceRecord.GUID,
 			AppGUID:             appState.App.GUID,
 			SpaceGUID:           appState.App.SpaceGUID,
+			Parameters:          manifestService.Parameters,
 		})
 		if err != nil {
 			return err
@@ -249,6 +253,16 @@ func (a *Applier) applyServices(ctx context.Context, authInfo authorization.Info
 	}
 
 	return nil
+}
+
+func getManifestService(manifestApp payloads.ManifestApplication, serviceName string) (payloads.ManifestApplicationService, error) {
+	for _, manifestService := range manifestApp.Services {
+		if manifestService.Name == serviceName {
+			return manifestService, nil
+		}
+	}
+
+	return payloads.ManifestApplicationService{}, fmt.Errorf("service %q not found in app %q manifest", serviceName, manifestApp.Name)
 }
 
 func splitRoute(route string) (string, string, string) {

@@ -60,6 +60,7 @@ type BuildWorkloadStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // BuildWorkload is the Schema for the buildworkloads API
 type BuildWorkload struct {
@@ -70,7 +71,12 @@ type BuildWorkload struct {
 	Status BuildWorkloadStatus `json:"status,omitempty"`
 }
 
+func (w *BuildWorkload) StatusConditions() *[]metav1.Condition {
+	return &w.Status.Conditions
+}
+
 //+kubebuilder:object:root=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // BuildWorkloadList contains a list of BuildWorkload
 type BuildWorkloadList struct {

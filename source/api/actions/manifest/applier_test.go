@@ -10,6 +10,7 @@ import (
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	"code.cloudfoundry.org/korifi/api/payloads"
 	"code.cloudfoundry.org/korifi/api/repositories"
+	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/tools"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -156,22 +157,22 @@ var _ = Describe("Applier", func() {
 					Command:                      tools.PtrTo("echo foo"),
 					DiskQuota:                    tools.PtrTo("512M"),
 					HealthCheckHTTPEndpoint:      tools.PtrTo("foo/bar"),
-					HealthCheckInvocationTimeout: tools.PtrTo(int64(10)),
+					HealthCheckInvocationTimeout: tools.PtrTo(int32(10)),
 					HealthCheckType:              tools.PtrTo("http"),
-					Instances:                    tools.PtrTo(2),
+					Instances:                    tools.PtrTo[int32](2),
 					Memory:                       tools.PtrTo("756M"),
-					Timeout:                      tools.PtrTo(int64(31)),
+					Timeout:                      tools.PtrTo(int32(31)),
 				},
 				{
 					Type:                         "ben",
 					Command:                      tools.PtrTo("echo bar"),
 					DiskQuota:                    tools.PtrTo("256M"),
 					HealthCheckHTTPEndpoint:      tools.PtrTo("bar/foo"),
-					HealthCheckInvocationTimeout: tools.PtrTo(int64(20)),
+					HealthCheckInvocationTimeout: tools.PtrTo(int32(20)),
 					HealthCheckType:              tools.PtrTo("port"),
-					Instances:                    tools.PtrTo(3),
+					Instances:                    tools.PtrTo[int32](3),
 					Memory:                       tools.PtrTo("1024M"),
-					Timeout:                      tools.PtrTo(int64(45)),
+					Timeout:                      tools.PtrTo(int32(45)),
 				},
 			}
 		})
@@ -188,7 +189,7 @@ var _ = Describe("Applier", func() {
 			Expect(createMsg.Command).To(Equal("echo foo"))
 			Expect(createMsg.DiskQuotaMB).To(BeEquivalentTo(512))
 			Expect(createMsg.MemoryMB).To(BeEquivalentTo(756))
-			Expect(createMsg.DesiredInstances).To(PointTo(Equal(2)))
+			Expect(createMsg.DesiredInstances).To(PointTo(BeEquivalentTo(2)))
 			Expect(createMsg.HealthCheck).To(Equal(repositories.HealthCheck{
 				Type: "http",
 				Data: repositories.HealthCheckData{
@@ -205,7 +206,7 @@ var _ = Describe("Applier", func() {
 			Expect(createMsg.Command).To(Equal("echo bar"))
 			Expect(createMsg.DiskQuotaMB).To(BeEquivalentTo(256))
 			Expect(createMsg.MemoryMB).To(BeEquivalentTo(1024))
-			Expect(createMsg.DesiredInstances).To(PointTo(Equal(3)))
+			Expect(createMsg.DesiredInstances).To(PointTo(BeEquivalentTo(3)))
 			Expect(createMsg.HealthCheck).To(Equal(repositories.HealthCheck{
 				Type: "port",
 				Data: repositories.HealthCheckData{
@@ -244,11 +245,11 @@ var _ = Describe("Applier", func() {
 				Expect(patchMsg.Command).To(Equal(tools.PtrTo("echo bar")))
 				Expect(patchMsg.DiskQuotaMB).To(Equal(tools.PtrTo(int64(256))))
 				Expect(patchMsg.MemoryMB).To(Equal(tools.PtrTo(int64(1024))))
-				Expect(patchMsg.DesiredInstances).To(Equal(tools.PtrTo(3)))
+				Expect(patchMsg.DesiredInstances).To(PointTo(BeEquivalentTo(3)))
 				Expect(patchMsg.HealthCheckType).To(Equal(tools.PtrTo("port")))
 				Expect(patchMsg.HealthCheckHTTPEndpoint).To(Equal(tools.PtrTo("bar/foo")))
-				Expect(patchMsg.HealthCheckInvocationTimeoutSeconds).To(Equal(tools.PtrTo(int64(20))))
-				Expect(patchMsg.HealthCheckTimeoutSeconds).To(Equal(tools.PtrTo(int64(45))))
+				Expect(patchMsg.HealthCheckInvocationTimeoutSeconds).To(Equal(tools.PtrTo(int32(20))))
+				Expect(patchMsg.HealthCheckTimeoutSeconds).To(Equal(tools.PtrTo(int32(45))))
 			})
 
 			When("patching the process fails", func() {
@@ -271,11 +272,11 @@ var _ = Describe("Applier", func() {
 			appInfo.Routes = []payloads.ManifestRoute{
 				{Route: tools.PtrTo("r1.my.domain/my-path")},
 			}
-			domainRepo.GetDomainByNameReturns(repositories.DomainRecord{
+			domainRepo.ListDomainsReturns([]repositories.DomainRecord{{
 				Namespace: "domain-namespace",
 				Name:      "domain-name",
 				GUID:      "domain-guid",
-			}, nil)
+			}}, nil)
 
 			routeRepo.GetOrCreateRouteReturns(repositories.RouteRecord{
 				GUID:      "route-guid",
@@ -287,9 +288,9 @@ var _ = Describe("Applier", func() {
 		})
 
 		It("creates the route", func() {
-			Expect(domainRepo.GetDomainByNameCallCount()).To(Equal(1))
-			_, _, domainName := domainRepo.GetDomainByNameArgsForCall(0)
-			Expect(domainName).To(Equal("my.domain"))
+			Expect(domainRepo.ListDomainsCallCount()).To(Equal(1))
+			_, _, listMessage := domainRepo.ListDomainsArgsForCall(0)
+			Expect(listMessage.Names).To(ConsistOf(Equal("my.domain")))
 
 			Expect(routeRepo.GetOrCreateRouteCallCount()).To(Equal(1))
 			_, _, createRouteMessage := routeRepo.GetOrCreateRouteArgsForCall(0)
@@ -306,11 +307,11 @@ var _ = Describe("Applier", func() {
 		It("adds a destination for the web process to the route without port", func() {
 			Expect(routeRepo.AddDestinationsToRouteCallCount()).To(Equal(1))
 			_, _, addDestinationMessage := routeRepo.AddDestinationsToRouteArgsForCall(0)
-			Expect(addDestinationMessage).To(Equal(repositories.AddDestinationsToRouteMessage{
+			Expect(addDestinationMessage).To(Equal(repositories.AddDestinationsMessage{
 				RouteGUID:            "route-guid",
 				SpaceGUID:            "space-guid",
 				ExistingDestinations: []repositories.DestinationRecord{{GUID: "dest-guid"}},
-				NewDestinations: []repositories.DestinationMessage{{
+				NewDestinations: []repositories.DesiredDestination{{
 					AppGUID:     "app-guid",
 					ProcessType: "web",
 				}},
@@ -326,9 +327,9 @@ var _ = Describe("Applier", func() {
 			})
 		})
 
-		When("getting the domain fails", func() {
+		When("listing domains fails", func() {
 			BeforeEach(func() {
-				domainRepo.GetDomainByNameReturns(repositories.DomainRecord{}, errors.New("get-domain-err"))
+				domainRepo.ListDomainsReturns([]repositories.DomainRecord{}, errors.New("get-domain-err"))
 			})
 
 			It("returns the error", func() {
@@ -362,7 +363,6 @@ var _ = Describe("Applier", func() {
 			})
 
 			It("doesn't do any route creation", func() {
-				Expect(domainRepo.GetDomainByNameCallCount()).To(BeZero())
 				Expect(routeRepo.GetOrCreateRouteCallCount()).To(BeZero())
 			})
 		})
@@ -392,17 +392,17 @@ var _ = Describe("Applier", func() {
 				Expect(routeRepo.RemoveDestinationFromRouteCallCount()).To(Equal(2))
 
 				_, _, removeDest1Msg := routeRepo.RemoveDestinationFromRouteArgsForCall(0)
-				Expect(removeDest1Msg).To(Equal(repositories.RemoveDestinationFromRouteMessage{
-					RouteGUID:       "route-guid",
-					SpaceGUID:       "space-guid",
-					DestinationGuid: "dest1-guid",
+				Expect(removeDest1Msg).To(Equal(repositories.RemoveDestinationMessage{
+					RouteGUID: "route-guid",
+					SpaceGUID: "space-guid",
+					GUID:      "dest1-guid",
 				}))
 
 				_, _, removeDest2Msg := routeRepo.RemoveDestinationFromRouteArgsForCall(1)
-				Expect(removeDest2Msg).To(Equal(repositories.RemoveDestinationFromRouteMessage{
-					RouteGUID:       "route-guid",
-					SpaceGUID:       "space-guid",
-					DestinationGuid: "dest2-guid",
+				Expect(removeDest2Msg).To(Equal(repositories.RemoveDestinationMessage{
+					RouteGUID: "route-guid",
+					SpaceGUID: "space-guid",
+					GUID:      "dest2-guid",
 				}))
 			})
 
@@ -444,8 +444,8 @@ var _ = Describe("Applier", func() {
 					_, _, removeDest2Msg := routeRepo.RemoveDestinationFromRouteArgsForCall(1)
 
 					Expect([]string{
-						removeDest1Msg.DestinationGuid,
-						removeDest2Msg.DestinationGuid,
+						removeDest1Msg.GUID,
+						removeDest2Msg.GUID,
 					}).To(ConsistOf("dest1-guid", "dest2-guid"))
 				})
 			})
@@ -470,7 +470,7 @@ var _ = Describe("Applier", func() {
 			}
 		})
 
-		It("creates a service binding", func() {
+		It("creates a service binding of type app", func() {
 			Expect(applierErr).NotTo(HaveOccurred())
 
 			Expect(serviceInstanceRepo.ListServiceInstancesCallCount()).To(Equal(1))
@@ -482,6 +482,7 @@ var _ = Describe("Applier", func() {
 			Expect(serviceBindingRepo.CreateServiceBindingCallCount()).To(Equal(1))
 			_, _, createMsg := serviceBindingRepo.CreateServiceBindingArgsForCall(0)
 			Expect(createMsg).To(Equal(repositories.CreateServiceBindingMessage{
+				Type:                korifiv1alpha1.CFServiceBindingTypeApp,
 				ServiceInstanceGUID: "service-guid",
 				AppGUID:             "app-guid",
 				SpaceGUID:           "space-guid",
@@ -502,10 +503,35 @@ var _ = Describe("Applier", func() {
 				Expect(serviceBindingRepo.CreateServiceBindingCallCount()).To(Equal(1))
 				_, _, createMsg := serviceBindingRepo.CreateServiceBindingArgsForCall(0)
 				Expect(createMsg).To(Equal(repositories.CreateServiceBindingMessage{
+					Type:                korifiv1alpha1.CFServiceBindingTypeApp,
 					Name:                tools.PtrTo("service-binding"),
 					ServiceInstanceGUID: "service-guid",
 					AppGUID:             "app-guid",
 					SpaceGUID:           "space-guid",
+				}))
+			})
+		})
+
+		When("the manifest service has parameters", func() {
+			BeforeEach(func() {
+				appInfo.Services = []payloads.ManifestApplicationService{
+					{
+						Name: "service-name",
+						Parameters: map[string]any{
+							"binding-param": "binding-param-value",
+						},
+					},
+					{Name: "already-bound-service-name"},
+				}
+			})
+
+			It("uses them when creating the binding", func() {
+				Expect(applierErr).NotTo(HaveOccurred())
+
+				Expect(serviceBindingRepo.CreateServiceBindingCallCount()).To(Equal(1))
+				_, _, createMsg := serviceBindingRepo.CreateServiceBindingArgsForCall(0)
+				Expect(createMsg.Parameters).To(Equal(map[string]any{
+					"binding-param": "binding-param-value",
 				}))
 			})
 		})

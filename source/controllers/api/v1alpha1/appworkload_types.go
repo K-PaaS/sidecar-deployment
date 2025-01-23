@@ -68,6 +68,7 @@ type AppWorkloadStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // AppWorkload is the Schema for the appworkloads API
 type AppWorkload struct {
@@ -78,7 +79,12 @@ type AppWorkload struct {
 	Status AppWorkloadStatus `json:"status,omitempty"`
 }
 
+func (w *AppWorkload) StatusConditions() *[]metav1.Condition {
+	return &w.Status.Conditions
+}
+
 //+kubebuilder:object:root=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // AppWorkloadList contains a list of AppWorkload
 type AppWorkloadList struct {

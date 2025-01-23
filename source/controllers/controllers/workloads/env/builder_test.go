@@ -6,7 +6,9 @@ import (
 
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/env"
+	"code.cloudfoundry.org/korifi/tests/helpers"
 	"code.cloudfoundry.org/korifi/tools"
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
@@ -74,7 +76,7 @@ var _ = Describe("EnvBuilder", func() {
 				"app-secret": []byte("top-secret"),
 			},
 		}
-		ensureCreate(appSecret)
+		helpers.EnsureCreate(controllersClient, appSecret)
 
 		vcapServicesSecret = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
@@ -83,7 +85,7 @@ var _ = Describe("EnvBuilder", func() {
 			},
 			Data: map[string][]byte{"VCAP_SERVICES": []byte("{}")},
 		}
-		ensureCreate(vcapServicesSecret)
+		helpers.EnsureCreate(controllersClient, vcapServicesSecret)
 
 		vcapApplicationSecret = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
@@ -92,7 +94,7 @@ var _ = Describe("EnvBuilder", func() {
 			},
 			Data: map[string][]byte{"VCAP_APPLICATION": []byte(`{"foo":"bar"}`)},
 		}
-		ensureCreate(vcapApplicationSecret)
+		helpers.EnsureCreate(controllersClient, vcapApplicationSecret)
 	})
 
 	Describe("AppEnvBuilder", func() {
@@ -127,7 +129,7 @@ var _ = Describe("EnvBuilder", func() {
 
 		When("the app env secret does not exist", func() {
 			BeforeEach(func() {
-				ensureDelete(appSecret)
+				helpers.EnsureDelete(controllersClient, appSecret)
 			})
 
 			It("errors", func() {
@@ -137,7 +139,7 @@ var _ = Describe("EnvBuilder", func() {
 
 		When("the app env secret is empty", func() {
 			BeforeEach(func() {
-				ensurePatch(appSecret, func(s *corev1.Secret) {
+				helpers.EnsurePatch(controllersClient, appSecret, func(s *corev1.Secret) {
 					s.Data = map[string][]byte{}
 				})
 			})
@@ -152,7 +154,7 @@ var _ = Describe("EnvBuilder", func() {
 
 		When("the app does not have an associated app env secret", func() {
 			BeforeEach(func() {
-				ensurePatch(cfApp, func(a *korifiv1alpha1.CFApp) {
+				helpers.EnsurePatch(controllersClient, cfApp, func(a *korifiv1alpha1.CFApp) {
 					a.Spec.EnvSecretName = ""
 				})
 			})
@@ -172,7 +174,7 @@ var _ = Describe("EnvBuilder", func() {
 
 		When("the app vcap services secret does not exist", func() {
 			BeforeEach(func() {
-				ensureDelete(vcapServicesSecret)
+				helpers.EnsureDelete(controllersClient, vcapServicesSecret)
 			})
 
 			It("errors", func() {
@@ -182,7 +184,7 @@ var _ = Describe("EnvBuilder", func() {
 
 		When("the app vcap services secret is empty", func() {
 			BeforeEach(func() {
-				ensurePatch(vcapServicesSecret, func(s *corev1.Secret) {
+				helpers.EnsurePatch(controllersClient, vcapServicesSecret, func(s *corev1.Secret) {
 					s.Data = map[string][]byte{}
 				})
 			})
@@ -197,7 +199,7 @@ var _ = Describe("EnvBuilder", func() {
 
 		When("the app does not have an associated app vcap services secret", func() {
 			BeforeEach(func() {
-				ensurePatch(cfApp, func(a *korifiv1alpha1.CFApp) {
+				helpers.EnsurePatch(controllersClient, cfApp, func(a *korifiv1alpha1.CFApp) {
 					a.Status.VCAPServicesSecretName = ""
 				})
 			})
@@ -217,7 +219,7 @@ var _ = Describe("EnvBuilder", func() {
 
 		When("the app vcap application secret does not exist", func() {
 			BeforeEach(func() {
-				ensureDelete(vcapApplicationSecret)
+				helpers.EnsureDelete(controllersClient, vcapApplicationSecret)
 			})
 
 			It("errors", func() {
@@ -227,7 +229,7 @@ var _ = Describe("EnvBuilder", func() {
 
 		When("the app vcap application secret is empty", func() {
 			BeforeEach(func() {
-				ensurePatch(vcapApplicationSecret, func(secret *corev1.Secret) {
+				helpers.EnsurePatch(controllersClient, vcapApplicationSecret, func(secret *corev1.Secret) {
 					secret.Data = nil
 				})
 			})
@@ -242,7 +244,7 @@ var _ = Describe("EnvBuilder", func() {
 
 		When("the app does not have an associated app vcap application secret", func() {
 			BeforeEach(func() {
-				ensurePatch(cfApp, func(a *korifiv1alpha1.CFApp) {
+				helpers.EnsurePatch(controllersClient, cfApp, func(a *korifiv1alpha1.CFApp) {
 					a.Status.VCAPApplicationSecretName = ""
 				})
 			})
@@ -274,7 +276,7 @@ var _ = Describe("EnvBuilder", func() {
 					ProcessType: "web",
 				},
 			}
-			ensureCreate(cfProcess)
+			helpers.EnsureCreate(controllersClient, cfProcess)
 			builder = env.NewProcessEnvBuilder(controllersClient)
 		})
 
@@ -314,8 +316,8 @@ var _ = Describe("EnvBuilder", func() {
 
 			BeforeEach(func() {
 				destinations := []korifiv1alpha1.Destination{{
-					GUID: "dest-guid",
-					Port: tools.PtrTo(1234),
+					GUID: uuid.NewString(),
+					Port: tools.PtrTo[int32](1234),
 					AppRef: corev1.LocalObjectReference{
 						Name: cfApp.Name,
 					},
@@ -325,15 +327,15 @@ var _ = Describe("EnvBuilder", func() {
 				cfRoute = &korifiv1alpha1.CFRoute{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: cfSpace.Status.GUID,
-						Name:      "cf-route-guid",
+						Name:      uuid.NewString(),
 					},
 					Spec: korifiv1alpha1.CFRouteSpec{
 						Destinations: destinations,
 					},
 				}
-				ensureCreate(cfRoute)
+				helpers.EnsureCreate(controllersClient, cfRoute)
 
-				ensurePatch(cfRoute, func(cfRoute *korifiv1alpha1.CFRoute) {
+				helpers.EnsurePatch(controllersClient, cfRoute, func(cfRoute *korifiv1alpha1.CFRoute) {
 					cfRoute.Status.Destinations = destinations
 				})
 			})
@@ -357,7 +359,7 @@ var _ = Describe("EnvBuilder", func() {
 			})
 			When("the route does not have destinations", func() {
 				BeforeEach(func() {
-					ensurePatch(cfRoute, func(cfRoute *korifiv1alpha1.CFRoute) {
+					helpers.EnsurePatch(controllersClient, cfRoute, func(cfRoute *korifiv1alpha1.CFRoute) {
 						cfRoute.Status.Destinations = []korifiv1alpha1.Destination{}
 					})
 				})

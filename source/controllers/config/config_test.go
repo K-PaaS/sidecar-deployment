@@ -33,7 +33,7 @@ var _ = Describe("LoadFromPath", func() {
 			CFProcessDefaults: config.CFProcessDefaults{
 				MemoryMB:    1024,
 				DiskQuotaMB: 512,
-				Timeout:     tools.PtrTo(int64(30)),
+				Timeout:     tools.PtrTo(int32(30)),
 			},
 			CFStagingResources: config.CFStagingResources{
 				BuildCacheMB: 1024,
@@ -45,13 +45,14 @@ var _ = Describe("LoadFromPath", func() {
 			TaskTTL:                          "taskTTL",
 			BuilderName:                      "buildReconciler",
 			RunnerName:                       "statefulset-runner",
-			JobTTL:                           "jobTTL",
 			LogLevel:                         zapcore.DebugLevel,
-			SpaceFinalizerAppDeletionTimeout: tools.PtrTo(int64(42)),
+			SpaceFinalizerAppDeletionTimeout: tools.PtrTo(int32(42)),
 			Networking: config.Networking{
 				GatewayName:      "gw-name",
 				GatewayNamespace: "gw-ns",
 			},
+			ExperimentalManagedServicesEnabled: true,
+			TrustInsecureServiceBrokers:        true,
 		}
 	})
 
@@ -73,7 +74,7 @@ var _ = Describe("LoadFromPath", func() {
 			CFProcessDefaults: config.CFProcessDefaults{
 				MemoryMB:    1024,
 				DiskQuotaMB: 512,
-				Timeout:     tools.PtrTo(int64(30)),
+				Timeout:     tools.PtrTo(int32(30)),
 			},
 			CFStagingResources: config.CFStagingResources{
 				BuildCacheMB: 1024,
@@ -87,13 +88,14 @@ var _ = Describe("LoadFromPath", func() {
 			RunnerName:                       "statefulset-runner",
 			NamespaceLabels:                  map[string]string{},
 			ExtraVCAPApplicationValues:       map[string]any{},
-			JobTTL:                           "jobTTL",
 			LogLevel:                         zapcore.DebugLevel,
-			SpaceFinalizerAppDeletionTimeout: tools.PtrTo(int64(42)),
+			SpaceFinalizerAppDeletionTimeout: tools.PtrTo(int32(42)),
 			Networking: config.Networking{
 				GatewayName:      "gw-name",
 				GatewayNamespace: "gw-ns",
 			},
+			ExperimentalManagedServicesEnabled: true,
+			TrustInsecureServiceBrokers:        true,
 		}))
 	})
 
@@ -103,7 +105,7 @@ var _ = Describe("LoadFromPath", func() {
 		})
 
 		It("uses the default", func() {
-			Expect(retConfig.CFProcessDefaults.Timeout).To(gstruct.PointTo(Equal(int64(60))))
+			Expect(retConfig.CFProcessDefaults.Timeout).To(gstruct.PointTo(BeEquivalentTo(60)))
 		})
 	})
 
@@ -123,7 +125,7 @@ var _ = Describe("LoadFromPath", func() {
 		})
 
 		It("uses the default", func() {
-			Expect(retConfig.SpaceFinalizerAppDeletionTimeout).To(gstruct.PointTo(Equal(int64(60))))
+			Expect(retConfig.SpaceFinalizerAppDeletionTimeout).To(gstruct.PointTo(BeEquivalentTo(60)))
 		})
 	})
 
@@ -176,51 +178,6 @@ var _ = Describe("ParseTaskTTL", func() {
 	When("entering something that cannot be parsed", func() {
 		BeforeEach(func() {
 			taskTTLString = "foreva"
-		})
-
-		It("returns an error", func() {
-			Expect(parseErr).To(HaveOccurred())
-		})
-	})
-})
-
-var _ = Describe("ParseJobTTL", func() {
-	var (
-		jobTTL    time.Duration
-		parseErr  error
-		jobTTLStr string
-	)
-
-	BeforeEach(func() {
-		jobTTLStr = ""
-	})
-
-	JustBeforeEach(func() {
-		cfg := config.ControllerConfig{
-			JobTTL: jobTTLStr,
-		}
-		jobTTL, parseErr = cfg.ParseJobTTL()
-	})
-
-	It("return 30 days by default", func() {
-		Expect(parseErr).NotTo(HaveOccurred())
-		Expect(jobTTL).To(Equal(24 * time.Hour))
-	})
-
-	When("jobTTL is something parseable by tools.ParseDuration", func() {
-		BeforeEach(func() {
-			jobTTLStr = "5d12h"
-		})
-
-		It("parses ok", func() {
-			Expect(parseErr).NotTo(HaveOccurred())
-			Expect(jobTTL).To(Equal(5*24*time.Hour + 12*time.Hour))
-		})
-	})
-
-	When("entering something that cannot be parsed", func() {
-		BeforeEach(func() {
-			jobTTLStr = "foreva"
 		})
 
 		It("returns an error", func() {

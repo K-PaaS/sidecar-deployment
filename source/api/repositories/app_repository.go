@@ -4,24 +4,28 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
 	"code.cloudfoundry.org/korifi/api/authorization"
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
+	"code.cloudfoundry.org/korifi/api/repositories/compare"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/env"
 	"code.cloudfoundry.org/korifi/controllers/webhooks/validation"
+	"code.cloudfoundry.org/korifi/tools"
 	"code.cloudfoundry.org/korifi/tools/k8s"
 
+	"github.com/BooleanCat/go-functional/v2/it"
+	"github.com/BooleanCat/go-functional/v2/it/itx"
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -30,31 +34,72 @@ const (
 	StartedState DesiredState = "STARTED"
 	StoppedState DesiredState = "STOPPED"
 
-	Kind               string = "CFApp"
-	APIVersion         string = "korifi.cloudfoundry.org/v1alpha1"
 	CFAppGUIDLabel     string = "korifi.cloudfoundry.org/app-guid"
 	AppResourceType    string = "App"
 	AppEnvResourceType string = "App Env"
 )
 
 type AppRepo struct {
-	namespaceRetriever   NamespaceRetriever
-	userClientFactory    authorization.UserK8sClientFactory
-	namespacePermissions *authorization.NamespacePermissions
-	appAwaiter           Awaiter[*korifiv1alpha1.CFApp]
+	namespaceRetriever NamespaceRetriever
+	userClientFactory  authorization.UserClientFactory
+	appAwaiter         Awaiter[*korifiv1alpha1.CFApp]
+	sorter             AppSorter
+}
+
+//counterfeiter:generate -o fake -fake-name AppSorter . AppSorter
+type AppSorter interface {
+	Sort(records []AppRecord, order string) []AppRecord
+}
+
+type appSorter struct {
+	sorter *compare.Sorter[AppRecord]
+}
+
+func NewAppSorter() *appSorter {
+	return &appSorter{
+		sorter: compare.NewSorter(AppComparator),
+	}
+}
+
+func (s *appSorter) Sort(records []AppRecord, order string) []AppRecord {
+	return s.sorter.Sort(records, order)
+}
+
+func AppComparator(fieldName string) func(AppRecord, AppRecord) int {
+	return func(a1, a2 AppRecord) int {
+		switch fieldName {
+		case "", "name":
+			return strings.Compare(a1.Name, a2.Name)
+		case "-name":
+			return strings.Compare(a2.Name, a1.Name)
+		case "created_at":
+			return tools.CompareTimePtr(&a1.CreatedAt, &a2.CreatedAt)
+		case "-created_at":
+			return tools.CompareTimePtr(&a2.CreatedAt, &a1.CreatedAt)
+		case "updated_at":
+			return tools.CompareTimePtr(a1.UpdatedAt, a2.UpdatedAt)
+		case "-updated_at":
+			return tools.CompareTimePtr(a2.UpdatedAt, a1.UpdatedAt)
+		case "state":
+			return strings.Compare(string(a1.State), string(a2.State))
+		case "-state":
+			return strings.Compare(string(a2.State), string(a1.State))
+		}
+		return 0
+	}
 }
 
 func NewAppRepo(
 	namespaceRetriever NamespaceRetriever,
-	userClientFactory authorization.UserK8sClientFactory,
-	authPerms *authorization.NamespacePermissions,
+	userClientFactory authorization.UserClientFactory,
 	appAwaiter Awaiter[*korifiv1alpha1.CFApp],
+	sorter AppSorter,
 ) *AppRepo {
 	return &AppRepo{
-		namespaceRetriever:   namespaceRetriever,
-		userClientFactory:    userClientFactory,
-		namespacePermissions: authPerms,
-		appAwaiter:           appAwaiter,
+		namespaceRetriever: namespaceRetriever,
+		userClientFactory:  userClientFactory,
+		appAwaiter:         appAwaiter,
+		sorter:             sorter,
 	}
 }
 
@@ -76,6 +121,16 @@ type AppRecord struct {
 	envSecretName         string
 	vcapServiceSecretName string
 	vcapAppSecretName     string
+}
+
+func (a AppRecord) GetResourceType() string {
+	return AppResourceType
+}
+
+func (a AppRecord) Relationships() map[string]string {
+	return map[string]string{
+		"space": a.SpaceGUID,
+	}
 }
 
 type DesiredState string
@@ -171,22 +226,15 @@ type SetAppDesiredStateMessage struct {
 type ListAppsMessage struct {
 	Names         []string
 	Guids         []string
-	SpaceGuids    []string
+	SpaceGUIDs    []string
 	LabelSelector string
+	OrderBy       string
 }
 
-type byName []AppRecord
-
-func (a byName) Len() int {
-	return len(a)
-}
-
-func (a byName) Less(i, j int) bool {
-	return a[i].Name < a[j].Name
-}
-
-func (a byName) Swap(i, j int) {
-	a[i], a[j] = a[j], a[i]
+func (m *ListAppsMessage) matches(cfApp korifiv1alpha1.CFApp) bool {
+	return tools.EmptyOrContains(m.Names, cfApp.Spec.DisplayName) &&
+		tools.EmptyOrContains(m.Guids, cfApp.Name) &&
+		tools.EmptyOrContains(m.SpaceGUIDs, cfApp.Namespace)
 }
 
 func (f *AppRepo) GetApp(ctx context.Context, authInfo authorization.Info, appGUID string) (AppRecord, error) {
@@ -200,42 +248,18 @@ func (f *AppRepo) GetApp(ctx context.Context, authInfo authorization.Info, appGU
 		return AppRecord{}, fmt.Errorf("get-app failed to build user client: %w", err)
 	}
 
-	app := korifiv1alpha1.CFApp{}
-	err = userClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: appGUID}, &app)
+	app := &korifiv1alpha1.CFApp{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: ns,
+			Name:      appGUID,
+		},
+	}
+	err = userClient.Get(ctx, client.ObjectKeyFromObject(app), app)
 	if err != nil {
 		return AppRecord{}, fmt.Errorf("failed to get app: %w", apierrors.FromK8sError(err, AppResourceType))
 	}
 
-	return cfAppToAppRecord(app), nil
-}
-
-func (f *AppRepo) GetAppByNameAndSpace(ctx context.Context, authInfo authorization.Info, appName string, spaceGUID string) (AppRecord, error) {
-	userClient, err := f.userClientFactory.BuildClient(authInfo)
-	if err != nil {
-		return AppRecord{}, fmt.Errorf("get-app failed to build user client: %w", err)
-	}
-
-	appList := new(korifiv1alpha1.CFAppList)
-	err = userClient.List(ctx, appList, client.InNamespace(spaceGUID))
-	if err != nil {
-		return AppRecord{}, apierrors.FromK8sError(fmt.Errorf("get app: failed to list apps: %w", err), SpaceResourceType)
-	}
-
-	var matchingApps []korifiv1alpha1.CFApp
-	for _, app := range appList.Items {
-		if app.Spec.DisplayName == appName {
-			matchingApps = append(matchingApps, app)
-		}
-	}
-
-	if len(matchingApps) == 0 {
-		return AppRecord{}, apierrors.NewNotFoundError(fmt.Errorf("app %q in space %q not found", appName, spaceGUID), AppResourceType)
-	}
-	if len(matchingApps) > 1 {
-		return AppRecord{}, fmt.Errorf("duplicate instances of app %q in space %q", appName, spaceGUID)
-	}
-
-	return cfAppToAppRecord(matchingApps[0]), nil
+	return cfAppToAppRecord(*app), nil
 }
 
 func (f *AppRepo) CreateApp(ctx context.Context, authInfo authorization.Info, appCreateMessage CreateAppMessage) (AppRecord, error) {
@@ -256,14 +280,21 @@ func (f *AppRepo) CreateApp(ctx context.Context, authInfo authorization.Info, ap
 		return AppRecord{}, apierrors.FromK8sError(err, AppResourceType)
 	}
 
-	_, err = f.CreateOrPatchAppEnvVars(ctx, authInfo, CreateOrPatchAppEnvVarsMessage{
-		AppGUID:              cfApp.Name,
-		AppEtcdUID:           cfApp.UID,
-		SpaceGUID:            cfApp.Namespace,
-		EnvironmentVariables: appCreateMessage.EnvironmentVariables,
-	})
+	envSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cfApp.Spec.EnvSecretName,
+			Namespace: cfApp.Namespace,
+			Labels: map[string]string{
+				CFAppGUIDLabel: cfApp.Name,
+			},
+		},
+		StringData: appCreateMessage.EnvironmentVariables,
+	}
+	_ = controllerutil.SetOwnerReference(&cfApp, envSecret, scheme.Scheme)
+
+	err = userClient.Create(ctx, envSecret)
 	if err != nil {
-		return AppRecord{}, err
+		return AppRecord{}, apierrors.FromK8sError(err, AppResourceType)
 	}
 
 	return cfAppToAppRecord(cfApp), nil
@@ -275,46 +306,44 @@ func (f *AppRepo) PatchApp(ctx context.Context, authInfo authorization.Info, app
 		return AppRecord{}, fmt.Errorf("failed to build user client: %w", err)
 	}
 
-	app := new(korifiv1alpha1.CFApp)
-	err = userClient.Get(ctx, client.ObjectKey{Namespace: appPatchMessage.SpaceGUID, Name: appPatchMessage.AppGUID}, app)
-	if err != nil {
-		return AppRecord{}, apierrors.FromK8sError(err, AppResourceType)
+	cfApp := &korifiv1alpha1.CFApp{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: appPatchMessage.SpaceGUID,
+			Name:      appPatchMessage.AppGUID,
+		},
 	}
 
-	err = k8s.PatchResource(ctx, userClient, app, func() {
-		appPatchMessage.Apply(app)
+	err = PatchResource(ctx, userClient, cfApp, func() {
+		appPatchMessage.Apply(cfApp)
 	})
 	if err != nil {
 		return AppRecord{}, apierrors.FromK8sError(err, AppResourceType)
 	}
 
-	_, err = f.CreateOrPatchAppEnvVars(ctx, authInfo, CreateOrPatchAppEnvVarsMessage{
-		AppGUID:              app.Name,
-		AppEtcdUID:           app.UID,
-		SpaceGUID:            app.Namespace,
-		EnvironmentVariables: appPatchMessage.EnvironmentVariables,
+	envSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: cfApp.Namespace,
+			Name:      cfApp.Spec.EnvSecretName,
+		},
+	}
+	err = PatchResource(ctx, userClient, envSecret, func() {
+		if envSecret.Data == nil {
+			envSecret.Data = map[string][]byte{}
+		}
+		for k, v := range appPatchMessage.EnvironmentVariables {
+			envSecret.Data[k] = []byte(v)
+		}
 	})
 	if err != nil {
-		return AppRecord{}, err
+		return AppRecord{}, apierrors.FromK8sError(err, AppResourceType)
 	}
-
-	return cfAppToAppRecord(*app), nil
+	return cfAppToAppRecord(*cfApp), nil
 }
 
 func (f *AppRepo) ListApps(ctx context.Context, authInfo authorization.Info, message ListAppsMessage) ([]AppRecord, error) {
-	nsList, err := f.namespacePermissions.GetAuthorizedSpaceNamespaces(ctx, authInfo)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list namespaces for spaces with user role bindings: %w", err)
-	}
-
 	userClient, err := f.userClientFactory.BuildClient(authInfo)
 	if err != nil {
 		return []AppRecord{}, fmt.Errorf("failed to build user client: %w", err)
-	}
-
-	preds := []func(korifiv1alpha1.CFApp) bool{
-		SetPredicate(message.Names, func(s korifiv1alpha1.CFApp) string { return s.Spec.DisplayName }),
-		SetPredicate(message.Guids, func(s korifiv1alpha1.CFApp) string { return s.Name }),
 	}
 
 	labelSelector, err := labels.Parse(message.LabelSelector)
@@ -322,57 +351,42 @@ func (f *AppRepo) ListApps(ctx context.Context, authInfo authorization.Info, mes
 		return []AppRecord{}, apierrors.NewUnprocessableEntityError(err, "invalid label selector")
 	}
 
-	var filteredApps []korifiv1alpha1.CFApp
-	spaceGUIDSet := NewSet(message.SpaceGuids...)
-	for ns := range nsList {
-		if len(spaceGUIDSet) > 0 && !spaceGUIDSet.Includes(ns) {
-			continue
-		}
-
-		appList := &korifiv1alpha1.CFAppList{}
-		err := userClient.List(ctx, appList, client.InNamespace(ns), &client.ListOptions{LabelSelector: labelSelector})
-
-		if k8serrors.IsForbidden(err) {
-			continue
-		}
-		if err != nil {
-			return []AppRecord{}, fmt.Errorf("failed to list apps in namespace %s: %w", ns, apierrors.FromK8sError(err, AppResourceType))
-		}
-
-		filteredApps = append(filteredApps, Filter(appList.Items, preds...)...)
+	appList := &korifiv1alpha1.CFAppList{}
+	err = userClient.List(ctx, appList, &client.ListOptions{LabelSelector: labelSelector})
+	if err != nil {
+		return []AppRecord{}, fmt.Errorf("failed to list apps: %w", apierrors.FromK8sError(err, AppResourceType))
 	}
 
-	appRecords := returnAppList(filteredApps)
+	appRecords := it.Map(itx.FromSlice(appList.Items).Filter(message.matches), cfAppToAppRecord)
 
-	// By default sort it by App.DisplayName
-	sort.Sort(byName(appRecords))
-
-	return appRecords, nil
-}
-
-func returnAppList(appList []korifiv1alpha1.CFApp) []AppRecord {
-	appRecords := make([]AppRecord, 0, len(appList))
-
-	for _, app := range appList {
-		appRecords = append(appRecords, cfAppToAppRecord(app))
-	}
-	return appRecords
+	return f.sorter.Sort(slices.Collect(appRecords), message.OrderBy), nil
 }
 
 func (f *AppRepo) PatchAppEnvVars(ctx context.Context, authInfo authorization.Info, message PatchAppEnvVarsMessage) (AppEnvVarsRecord, error) {
-	secretObj := corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      GenerateEnvSecretName(message.AppGUID),
-			Namespace: message.SpaceGUID,
-		},
-	}
-
 	userClient, err := f.userClientFactory.BuildClient(authInfo)
 	if err != nil {
 		return AppEnvVarsRecord{}, fmt.Errorf("failed to build user client: %w", err)
 	}
 
-	_, err = controllerutil.CreateOrPatch(ctx, userClient, &secretObj, func() error {
+	cfApp := &korifiv1alpha1.CFApp{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: message.SpaceGUID,
+			Name:      message.AppGUID,
+		},
+	}
+	err = userClient.Get(ctx, client.ObjectKeyFromObject(cfApp), cfApp)
+	if err != nil {
+		return AppEnvVarsRecord{}, apierrors.FromK8sError(err, AppEnvResourceType)
+	}
+
+	secretObj := corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cfApp.Spec.EnvSecretName,
+			Namespace: message.SpaceGUID,
+		},
+	}
+
+	err = PatchResource(ctx, userClient, &secretObj, func() {
 		if secretObj.Data == nil {
 			secretObj.Data = map[string][]byte{}
 		}
@@ -383,30 +397,11 @@ func (f *AppRepo) PatchAppEnvVars(ctx context.Context, authInfo authorization.In
 				secretObj.Data[k] = []byte(*v)
 			}
 		}
-		return nil
 	})
 	if err != nil {
 		return AppEnvVarsRecord{}, apierrors.FromK8sError(err, AppEnvResourceType)
 	}
 
-	return appEnvVarsSecretToRecord(secretObj), nil
-}
-
-func (f *AppRepo) CreateOrPatchAppEnvVars(ctx context.Context, authInfo authorization.Info, envVariables CreateOrPatchAppEnvVarsMessage) (AppEnvVarsRecord, error) {
-	secretObj := appEnvVarsRecordToSecret(envVariables)
-
-	userClient, err := f.userClientFactory.BuildClient(authInfo)
-	if err != nil {
-		return AppEnvVarsRecord{}, fmt.Errorf("failed to build user client: %w", err)
-	}
-
-	_, err = controllerutil.CreateOrPatch(ctx, userClient, &secretObj, func() error {
-		secretObj.StringData = envVariables.EnvironmentVariables
-		return nil
-	})
-	if err != nil {
-		return AppEnvVarsRecord{}, apierrors.FromK8sError(err, AppEnvResourceType)
-	}
 	return appEnvVarsSecretToRecord(secretObj), nil
 }
 
@@ -608,15 +603,10 @@ func getAppEnv(ctx context.Context, userClient client.Client, app AppRecord) (ma
 	return appEnvMap, nil
 }
 
-func GenerateEnvSecretName(appGUID string) string {
-	return appGUID + "-env"
-}
-
 func (m *CreateAppMessage) toCFApp() korifiv1alpha1.CFApp {
-	guid := uuid.NewString()
 	return korifiv1alpha1.CFApp{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        guid,
+			Name:        uuid.NewString(),
 			Namespace:   m.SpaceGUID,
 			Labels:      m.Labels,
 			Annotations: m.Annotations,
@@ -624,7 +614,7 @@ func (m *CreateAppMessage) toCFApp() korifiv1alpha1.CFApp {
 		Spec: korifiv1alpha1.CFAppSpec{
 			DisplayName:   m.Name,
 			DesiredState:  korifiv1alpha1.AppState(m.State),
-			EnvSecretName: GenerateEnvSecretName(guid),
+			EnvSecretName: uuid.NewString(),
 			Lifecycle: korifiv1alpha1.Lifecycle{
 				Type: korifiv1alpha1.LifecycleType(m.Lifecycle.Type),
 				Data: korifiv1alpha1.LifecycleData{
@@ -679,31 +669,10 @@ func cfAppToAppRecord(cfApp korifiv1alpha1.CFApp) AppRecord {
 		CreatedAt:             cfApp.CreationTimestamp.Time,
 		UpdatedAt:             getLastUpdatedTime(&cfApp),
 		DeletedAt:             golangTime(cfApp.DeletionTimestamp),
-		IsStaged:              meta.IsStatusConditionTrue(cfApp.Status.Conditions, korifiv1alpha1.StatusConditionReady),
+		IsStaged:              cfApp.Spec.CurrentDropletRef.Name != "",
 		envSecretName:         cfApp.Spec.EnvSecretName,
 		vcapServiceSecretName: cfApp.Status.VCAPServicesSecretName,
 		vcapAppSecretName:     cfApp.Status.VCAPApplicationSecretName,
-	}
-}
-
-func appEnvVarsRecordToSecret(envVars CreateOrPatchAppEnvVarsMessage) corev1.Secret {
-	labels := make(map[string]string, 1)
-	labels[CFAppGUIDLabel] = envVars.AppGUID
-	return corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      GenerateEnvSecretName(envVars.AppGUID),
-			Namespace: envVars.SpaceGUID,
-			Labels:    labels,
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion: APIVersion,
-					Kind:       Kind,
-					Name:       envVars.AppGUID,
-					UID:        envVars.AppEtcdUID,
-				},
-			},
-		},
-		StringData: envVars.EnvironmentVariables,
 	}
 }
 
@@ -718,9 +687,7 @@ func appEnvVarsSecretToRecord(envVars corev1.Secret) AppEnvVarsRecord {
 }
 
 func convertByteSliceValuesToStrings(inputMap map[string][]byte) map[string]string {
-	outputMap := make(map[string]string, len(inputMap))
-	for k, v := range inputMap {
-		outputMap[k] = string(v)
-	}
-	return outputMap
+	return maps.Collect(it.Map2(maps.All(inputMap), func(k string, v []byte) (string, string) {
+		return k, string(v)
+	}))
 }

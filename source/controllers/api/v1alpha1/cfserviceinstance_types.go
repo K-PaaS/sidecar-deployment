@@ -19,13 +19,20 @@ package v1alpha1
 import (
 	"fmt"
 
+	"code.cloudfoundry.org/korifi/model/services"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
-	UserProvidedType     = "user-provided"
-	CredentialsSecretKey = "credentials"
+	UserProvidedType = "user-provided"
+	ManagedType      = "managed"
+
+	CFServiceInstanceFinalizerName = "cfServiceInstance.korifi.cloudfoundry.org"
+
+	ProvisioningFailedCondition   = "ProvisioningFailed"
+	DeprovisioningFailedCondition = "DeprovisioningFailed"
 )
 
 // CFServiceInstanceSpec defines the desired state of CFServiceInstance
@@ -36,20 +43,25 @@ type CFServiceInstanceSpec struct {
 	// Name of a secret containing the service credentials. The Secret must be in the same namespace
 	SecretName string `json:"secretName"`
 
-	// Type of the Service Instance. Must be `user-provided`
+	// Type of the Service Instance. Must be `user-provided` or `managed`
 	Type InstanceType `json:"type"`
 
-	// Service label to use when adding this instance to VCAP_Services
-	// Defaults to `user-provided` when this field is not set
+	// Service label to use when adding this instance to VCAP_SERVICES. If not
+	// set, the service instance Type would be used. For managed services the
+	// value is defaulted to the offering name
 	// +optional
 	ServiceLabel *string `json:"serviceLabel,omitempty"`
 
 	// Tags are used by apps to identify service instances
 	Tags []string `json:"tags,omitempty"`
+
+	PlanGUID string `json:"plan_guid"`
+
+	Parameters *runtime.RawExtension `json:"parameters,omitempty"`
 }
 
 // InstanceType defines the type of the Service Instance
-// +kubebuilder:validation:Enum=user-provided
+// +kubebuilder:validation:Enum=user-provided;managed
 type InstanceType string
 
 // CFServiceInstanceStatus defines the observed state of CFServiceInstance
@@ -69,12 +81,16 @@ type CFServiceInstanceStatus struct {
 	// This will ensure that interested contollers are notified on instance credentials change
 	//+kubebuilder:validation:Optional
 	CredentialsObservedVersion string `json:"credentialsObservedVersion,omitempty"`
+
+	//+kubebuilder:validation:Optional
+	LastOperation services.LastOperation `json:"last_operation"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:printcolumn:name="Display Name",type=string,JSONPath=`.spec.displayName`
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=`.metadata.creationTimestamp`
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // CFServiceInstance is the Schema for the cfserviceinstances API
 type CFServiceInstance struct {
@@ -95,11 +111,12 @@ func (si CFServiceInstance) UniqueValidationErrorMessage() string {
 	return fmt.Sprintf("The service instance name is taken: %s", si.Spec.DisplayName)
 }
 
-func (si CFServiceInstance) StatusConditions() []metav1.Condition {
-	return si.Status.Conditions
+func (si *CFServiceInstance) StatusConditions() *[]metav1.Condition {
+	return &si.Status.Conditions
 }
 
 //+kubebuilder:object:root=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // CFServiceInstanceList contains a list of CFServiceInstance
 type CFServiceInstanceList struct {

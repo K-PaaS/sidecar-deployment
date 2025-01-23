@@ -1,13 +1,13 @@
 package repositories_test
 
 import (
-	"context"
 	"errors"
 	"time"
 
 	"code.cloudfoundry.org/korifi/tools"
 	"code.cloudfoundry.org/korifi/tools/k8s"
 
+	"code.cloudfoundry.org/korifi/api/authorization"
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	. "code.cloudfoundry.org/korifi/api/repositories"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
@@ -43,7 +43,12 @@ var _ = Describe("RouteRepository", func() {
 		route1GUID = prefixedGUID("route1")
 		route2GUID = prefixedGUID("route2")
 		domainGUID = prefixedGUID("domain")
-		routeRepo = NewRouteRepo(namespaceRetriever, userClientFactory, nsPerms)
+		routeRepo = NewRouteRepo(
+			namespaceRetriever,
+			userClientFactory.WithWrappingFunc(func(client client.WithWatch) client.WithWatch {
+				return authorization.NewSpaceFilteringClient(client, k8sClient, nsPerms)
+			}),
+		)
 
 		cfDomain := &korifiv1alpha1.CFDomain{
 			ObjectMeta: metav1.ObjectMeta{
@@ -69,6 +74,9 @@ var _ = Describe("RouteRepository", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      route1GUID,
 					Namespace: space.Name,
+					Labels: map[string]string{
+						korifiv1alpha1.SpaceGUIDKey: space.Name,
+					},
 				},
 				Spec: korifiv1alpha1.CFRouteSpec{
 					Host:     "my-subdomain-1",
@@ -81,7 +89,7 @@ var _ = Describe("RouteRepository", func() {
 					Destinations: []korifiv1alpha1.Destination{
 						{
 							GUID: "destination-guid",
-							Port: tools.PtrTo(8080),
+							Port: tools.PtrTo[int32](8080),
 							AppRef: corev1.LocalObjectReference{
 								Name: "some-app-guid",
 							},
@@ -115,6 +123,11 @@ var _ = Describe("RouteRepository", func() {
 				Expect(route.SpaceGUID).To(Equal(cfRoute.Namespace))
 				Expect(route.Path).To(Equal(cfRoute.Spec.Path))
 				Expect(route.Protocol).To(Equal(string(cfRoute.Spec.Protocol)))
+
+				Expect(route.Relationships()).To(Equal(map[string]string{
+					"space":  cfRoute.Namespace,
+					"domain": domainGUID,
+				}))
 
 				By("returning a record with destinations that match the CFRoute CR", func() {
 					Expect(route.Destinations).To(HaveLen(len(cfRoute.Spec.Destinations)), "Route Record Destinations returned was not the correct length")
@@ -166,7 +179,7 @@ var _ = Describe("RouteRepository", func() {
 										Name: "some-app-guid",
 									},
 									ProcessType: "web",
-									Port:        tools.PtrTo(2345),
+									Port:        tools.PtrTo[int32](2345),
 									Protocol:    tools.PtrTo("http1"),
 								}},
 							}
@@ -176,7 +189,7 @@ var _ = Describe("RouteRepository", func() {
 					It("returns a destination record with the port in the route status", func() {
 						Expect(getErr).ToNot(HaveOccurred())
 						Expect(route.Destinations).To(ConsistOf(MatchFields(IgnoreExtras, Fields{
-							"Port":     PointTo(Equal(2345)),
+							"Port":     PointTo(BeEquivalentTo(2345)),
 							"Protocol": PointTo(Equal("http1")),
 						})))
 					})
@@ -211,6 +224,9 @@ var _ = Describe("RouteRepository", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      route1GUID,
 					Namespace: space.Name,
+					Labels: map[string]string{
+						korifiv1alpha1.SpaceGUIDKey: space.Name,
+					},
 				},
 				Spec: korifiv1alpha1.CFRouteSpec{
 					Host:     "my-subdomain-1-a",
@@ -228,7 +244,7 @@ var _ = Describe("RouteRepository", func() {
 				},
 			}
 			Expect(
-				k8sClient.Create(context.Background(), cfRoute1A),
+				k8sClient.Create(ctx, cfRoute1A),
 			).To(Succeed())
 
 			domainGUID2 = prefixedGUID("RouteListDomain2")
@@ -236,6 +252,9 @@ var _ = Describe("RouteRepository", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      route2GUID,
 					Namespace: space.Name,
+					Labels: map[string]string{
+						korifiv1alpha1.SpaceGUIDKey: space.Name,
+					},
 				},
 				Spec: korifiv1alpha1.CFRouteSpec{
 					Host:     "my-subdomain-1-b",
@@ -248,7 +267,7 @@ var _ = Describe("RouteRepository", func() {
 				},
 			}
 			Expect(
-				k8sClient.Create(context.Background(), cfRoute1B),
+				k8sClient.Create(ctx, cfRoute1B),
 			).To(Succeed())
 
 			space2 = createSpaceWithCleanup(ctx, org.Name, prefixedGUID("space2"))
@@ -256,6 +275,9 @@ var _ = Describe("RouteRepository", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      uuid.NewString(),
 					Namespace: space2.Name,
+					Labels: map[string]string{
+						korifiv1alpha1.SpaceGUIDKey: space2.Name,
+					},
 				},
 				Spec: korifiv1alpha1.CFRouteSpec{
 					Host:     "my-subdomain-2-a",
@@ -268,14 +290,17 @@ var _ = Describe("RouteRepository", func() {
 				},
 			}
 			Expect(
-				k8sClient.Create(context.Background(), cfRoute2A),
+				k8sClient.Create(ctx, cfRoute2A),
 			).To(Succeed())
 
 			space3 := createSpaceWithCleanup(ctx, org.Name, prefixedGUID("space3"))
-			Expect(k8sClient.Create(context.Background(), &korifiv1alpha1.CFRoute{
+			Expect(k8sClient.Create(ctx, &korifiv1alpha1.CFRoute{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      uuid.NewString(),
 					Namespace: space3.Name,
+					Labels: map[string]string{
+						korifiv1alpha1.SpaceGUIDKey: space3.Name,
+					},
 				},
 				Spec: korifiv1alpha1.CFRouteSpec{
 					Host:     "my-subdomain-3-a",
@@ -413,7 +438,6 @@ var _ = Describe("RouteRepository", func() {
 			cfRoute1     *korifiv1alpha1.CFRoute
 			cfRoute2     *korifiv1alpha1.CFRoute
 			routeRecords []RouteRecord
-			listErr      error
 			queryAppGUID string
 		)
 
@@ -424,6 +448,9 @@ var _ = Describe("RouteRepository", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      route1GUID,
 					Namespace: space.Name,
+					Labels: map[string]string{
+						korifiv1alpha1.SpaceGUIDKey: space.Name,
+					},
 				},
 				Spec: korifiv1alpha1.CFRouteSpec{
 					Host:     "my-subdomain-1",
@@ -436,7 +463,7 @@ var _ = Describe("RouteRepository", func() {
 					Destinations: []korifiv1alpha1.Destination{
 						{
 							GUID: "destination-guid",
-							Port: tools.PtrTo(8080),
+							Port: tools.PtrTo[int32](8080),
 							AppRef: corev1.LocalObjectReference{
 								Name: appGUID,
 							},
@@ -452,11 +479,13 @@ var _ = Describe("RouteRepository", func() {
 		})
 
 		JustBeforeEach(func() {
-			routeRecords, listErr = routeRepo.ListRoutesForApp(ctx, authInfo, queryAppGUID, space.Name)
+			var err error
+			routeRecords, err = routeRepo.ListRoutesForApp(ctx, authInfo, queryAppGUID, space.Name)
+			Expect(err).ToNot(HaveOccurred())
 		})
 
-		It("returns a forbidden error as the user is not authorized", func() {
-			Expect(listErr).To(matchers.WrapErrorAssignableToTypeOf(apierrors.ForbiddenError{}))
+		It("returns en empty list as the user is not authorized", func() {
+			Expect(routeRecords).To(BeEmpty())
 		})
 
 		When("the user is authorized in space", func() {
@@ -469,6 +498,9 @@ var _ = Describe("RouteRepository", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      route2GUID,
 						Namespace: space.Name,
+						Labels: map[string]string{
+							korifiv1alpha1.SpaceGUIDKey: space.Name,
+						},
 					},
 					Spec: korifiv1alpha1.CFRouteSpec{
 						Host:     "my-subdomain-2",
@@ -485,30 +517,26 @@ var _ = Describe("RouteRepository", func() {
 			})
 
 			It("returns a list of routeRecords for each CFRoute CR", func() {
-				Expect(listErr).NotTo(HaveOccurred())
-
-				By("returning a routeRecord in the list for one of the created CRs", func() {
-					Expect(routeRecords).To(ContainElement(MatchFields(IgnoreExtras, Fields{
-						"GUID":      Equal(cfRoute1.Name),
-						"Host":      Equal(cfRoute1.Spec.Host),
-						"SpaceGUID": Equal(cfRoute1.Namespace),
-						"Path":      Equal(cfRoute1.Spec.Path),
-						"Protocol":  Equal(string(cfRoute1.Spec.Protocol)),
-						"Domain": MatchFields(IgnoreExtras, Fields{
-							"GUID": Equal(cfRoute1.Spec.DomainRef.Name),
-						}),
-						"Destinations": ConsistOf(MatchFields(IgnoreExtras, Fields{
-							"GUID":        Equal(cfRoute1.Spec.Destinations[0].GUID),
-							"AppGUID":     Equal(cfRoute1.Spec.Destinations[0].AppRef.Name),
-							"Port":        Equal(cfRoute1.Spec.Destinations[0].Port),
-							"ProcessType": Equal(cfRoute1.Spec.Destinations[0].ProcessType),
-							"Protocol":    Equal(cfRoute1.Spec.Destinations[0].Protocol),
-						}),
-						),
-						"CreatedAt": BeTemporally("~", time.Now(), timeCheckThreshold),
-						"UpdatedAt": PointTo(BeTemporally("~", time.Now(), timeCheckThreshold)),
-					})))
-				})
+				Expect(routeRecords).To(ContainElement(MatchFields(IgnoreExtras, Fields{
+					"GUID":      Equal(cfRoute1.Name),
+					"Host":      Equal(cfRoute1.Spec.Host),
+					"SpaceGUID": Equal(cfRoute1.Namespace),
+					"Path":      Equal(cfRoute1.Spec.Path),
+					"Protocol":  Equal(string(cfRoute1.Spec.Protocol)),
+					"Domain": MatchFields(IgnoreExtras, Fields{
+						"GUID": Equal(cfRoute1.Spec.DomainRef.Name),
+					}),
+					"Destinations": ConsistOf(MatchFields(IgnoreExtras, Fields{
+						"GUID":        Equal(cfRoute1.Spec.Destinations[0].GUID),
+						"AppGUID":     Equal(cfRoute1.Spec.Destinations[0].AppRef.Name),
+						"Port":        Equal(cfRoute1.Spec.Destinations[0].Port),
+						"ProcessType": Equal(cfRoute1.Spec.Destinations[0].ProcessType),
+						"Protocol":    Equal(cfRoute1.Spec.Destinations[0].Protocol),
+					}),
+					),
+					"CreatedAt": BeTemporally("~", time.Now(), timeCheckThreshold),
+					"UpdatedAt": PointTo(BeTemporally("~", time.Now(), timeCheckThreshold)),
+				})))
 			})
 
 			When("no CFRoutes exist for the app", func() {
@@ -517,7 +545,6 @@ var _ = Describe("RouteRepository", func() {
 				})
 
 				It("returns an empty list and no error", func() {
-					Expect(listErr).ToNot(HaveOccurred())
 					Expect(routeRecords).To(BeEmpty())
 				})
 			})
@@ -564,7 +591,7 @@ var _ = Describe("RouteRepository", func() {
 				Expect(createdRouteErr).NotTo(HaveOccurred())
 				cfRouteLookupKey := types.NamespacedName{Name: createdRouteRecord.GUID, Namespace: space.Name}
 				createdCFRoute := new(korifiv1alpha1.CFRoute)
-				Expect(k8sClient.Get(context.Background(), cfRouteLookupKey, createdCFRoute)).To(Succeed())
+				Expect(k8sClient.Get(ctx, cfRouteLookupKey, createdCFRoute)).To(Succeed())
 
 				Expect(createdCFRoute.Spec.Host).To(Equal(createdRouteRecord.Host))
 				Expect(createdCFRoute.Spec.Path).To(Equal(createdRouteRecord.Path))
@@ -575,7 +602,7 @@ var _ = Describe("RouteRepository", func() {
 			})
 
 			It("returns a RouteRecord with matching fields", func() {
-				Expect(createdRouteRecord.GUID).To(HavePrefix("cf-route-"))
+				Expect(createdRouteRecord.GUID).To(matchers.BeValidUUID())
 				Expect(createdRouteRecord.Host).To(Equal(routeHost), "Route Host in record did not match input")
 				Expect(createdRouteRecord.Path).To(Equal(routePath), "Route Path in record did not match input")
 				Expect(createdRouteRecord.SpaceGUID).To(Equal(space.Name), "Route Space GUID in record did not match input")
@@ -610,6 +637,9 @@ var _ = Describe("RouteRepository", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      routeGUID,
 					Namespace: space.Name,
+					Labels: map[string]string{
+						korifiv1alpha1.SpaceGUIDKey: space.Name,
+					},
 				},
 				Spec: korifiv1alpha1.CFRouteSpec{
 					Host:     "my-subdomain-1",
@@ -622,7 +652,7 @@ var _ = Describe("RouteRepository", func() {
 					Destinations: []korifiv1alpha1.Destination{
 						{
 							GUID: "destination-guid",
-							Port: tools.PtrTo(8080),
+							Port: tools.PtrTo[int32](8080),
 							AppRef: corev1.LocalObjectReference{
 								Name: "some-app-guid",
 							},
@@ -705,12 +735,12 @@ var _ = Describe("RouteRepository", func() {
 			})
 
 			It("creates a new CFRoute CR successfully", func() {
-				Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: routeRecord.GUID, Namespace: space.Name}, &korifiv1alpha1.CFRoute{})).To(Succeed())
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: routeRecord.GUID, Namespace: space.Name}, &korifiv1alpha1.CFRoute{})).To(Succeed())
 			})
 
 			It("returns an RouteRecord with matching fields", func() {
 				Expect(routeErr).NotTo(HaveOccurred())
-				Expect(routeRecord.GUID).To(HavePrefix("cf-route-"))
+				Expect(routeRecord.GUID).To(matchers.BeValidUUID())
 				Expect(routeRecord.Host).To(Equal(routeHost), "Route Host in record did not match input")
 				Expect(routeRecord.Path).To(Equal(routePath), "Route Path in record did not match input")
 				Expect(routeRecord.SpaceGUID).To(Equal(space.Name), "Route Space GUID in record did not match input")
@@ -727,6 +757,17 @@ var _ = Describe("RouteRepository", func() {
 					var err error
 					existingRecord, err = routeRepo.CreateRoute(ctx, authInfo, createRouteMessage)
 					Expect(err).NotTo(HaveOccurred())
+
+					route := &korifiv1alpha1.CFRoute{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      existingRecord.GUID,
+							Namespace: existingRecord.SpaceGUID,
+						},
+					}
+					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(route), route)).To(Succeed())
+					Expect(k8s.Patch(ctx, k8sClient, route, func() {
+						route.Labels = tools.SetMapValue(route.Labels, korifiv1alpha1.SpaceGUIDKey, existingRecord.SpaceGUID)
+					})).To(Succeed())
 				})
 
 				It("doesn't create a new route", func() {
@@ -739,7 +780,7 @@ var _ = Describe("RouteRepository", func() {
 
 				It("returns the existing record", func() {
 					Expect(routeErr).NotTo(HaveOccurred())
-					Expect(routeRecord).To(Equal(existingRecord))
+					Expect(routeRecord.GUID).To(Equal(existingRecord.GUID))
 				})
 			})
 		})
@@ -763,7 +804,7 @@ var _ = Describe("RouteRepository", func() {
 
 		var (
 			appGUID                string
-			addDestinationsMessage AddDestinationsToRouteMessage
+			addDestinationsMessage AddDestinationsMessage
 			addDestinationErr      error
 			cfRoute                *korifiv1alpha1.CFRoute
 			routeRecord            RouteRecord
@@ -774,6 +815,9 @@ var _ = Describe("RouteRepository", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      route1GUID,
 					Namespace: space.Name,
+					Labels: map[string]string{
+						korifiv1alpha1.SpaceGUIDKey: space.Name,
+					},
 				},
 				Spec: korifiv1alpha1.CFRouteSpec{
 					Host: routeHost,
@@ -788,14 +832,14 @@ var _ = Describe("RouteRepository", func() {
 
 			appGUID = uuid.NewString()
 
-			addDestinationsMessage = AddDestinationsToRouteMessage{
+			addDestinationsMessage = AddDestinationsMessage{
 				RouteGUID: route1GUID,
 				SpaceGUID: space.Name,
-				NewDestinations: []DestinationMessage{
+				NewDestinations: []DesiredDestination{
 					{
 						AppGUID:     appGUID,
 						ProcessType: "web",
-						Port:        tools.PtrTo(9090),
+						Port:        tools.PtrTo[int32](9090),
 						Protocol:    tools.PtrTo("http1"),
 					},
 				},
@@ -836,7 +880,7 @@ var _ = Describe("RouteRepository", func() {
 					MatchAllFields(
 						Fields{
 							"GUID":        Not(BeEmpty()),
-							"Port":        PointTo(Equal(9090)),
+							"Port":        PointTo(BeEquivalentTo(9090)),
 							"AppGUID":     Equal(appGUID),
 							"ProcessType": Equal("web"),
 							"Protocol":    PointTo(Equal("http1")),
@@ -848,7 +892,7 @@ var _ = Describe("RouteRepository", func() {
 					MatchAllFields(
 						Fields{
 							"GUID": Not(BeEmpty()),
-							"Port": PointTo(Equal(9090)),
+							"Port": PointTo(BeEquivalentTo(9090)),
 							"AppRef": Equal(corev1.LocalObjectReference{
 								Name: appGUID,
 							}),
@@ -903,7 +947,7 @@ var _ = Describe("RouteRepository", func() {
 				BeforeEach(func() {
 					routeDestination = korifiv1alpha1.Destination{
 						GUID: prefixedGUID("existing-route-guid"),
-						Port: tools.PtrTo(8000),
+						Port: tools.PtrTo[int32](8000),
 						AppRef: corev1.LocalObjectReference{
 							Name: prefixedGUID("existing-route-app"),
 						},
@@ -934,7 +978,7 @@ var _ = Describe("RouteRepository", func() {
 						appGUID1 = uuid.NewString()
 						appGUID2 = uuid.NewString()
 
-						addDestinationsMessage.NewDestinations = []DestinationMessage{
+						addDestinationsMessage.NewDestinations = []DesiredDestination{
 							{
 								AppGUID:     appGUID1,
 								ProcessType: "weba",
@@ -996,7 +1040,7 @@ var _ = Describe("RouteRepository", func() {
 					BeforeEach(func() {
 						appGUID2 = uuid.NewString()
 
-						addDestinationsMessage.NewDestinations = []DestinationMessage{
+						addDestinationsMessage.NewDestinations = []DesiredDestination{
 							{
 								AppGUID:     routeDestination.AppRef.Name,
 								ProcessType: routeDestination.ProcessType,
@@ -1065,6 +1109,9 @@ var _ = Describe("RouteRepository", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      route1GUID,
 					Namespace: space.Name,
+					Labels: map[string]string{
+						korifiv1alpha1.SpaceGUIDKey: space.Name,
+					},
 				},
 				Spec: korifiv1alpha1.CFRouteSpec{
 					Host: routeHost,
@@ -1075,7 +1122,7 @@ var _ = Describe("RouteRepository", func() {
 					},
 					Destinations: []korifiv1alpha1.Destination{{
 						GUID: destinationGUID,
-						Port: tools.PtrTo(8000),
+						Port: tools.PtrTo[int32](8000),
 						AppRef: corev1.LocalObjectReference{
 							Name: uuid.NewString(),
 						},
@@ -1087,10 +1134,10 @@ var _ = Describe("RouteRepository", func() {
 		})
 
 		JustBeforeEach(func() {
-			_, removeDestinationErr = routeRepo.RemoveDestinationFromRoute(ctx, authInfo, RemoveDestinationFromRouteMessage{
-				RouteGUID:       route1GUID,
-				SpaceGUID:       space.Name,
-				DestinationGuid: destinationGUID,
+			_, removeDestinationErr = routeRepo.RemoveDestinationFromRoute(ctx, authInfo, RemoveDestinationMessage{
+				RouteGUID: route1GUID,
+				SpaceGUID: space.Name,
+				GUID:      destinationGUID,
 			})
 		})
 
@@ -1146,6 +1193,9 @@ var _ = Describe("RouteRepository", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      route1GUID,
 					Namespace: space.Name,
+					Labels: map[string]string{
+						korifiv1alpha1.SpaceGUIDKey: space.Name,
+					},
 				},
 				Spec: korifiv1alpha1.CFRouteSpec{
 					Host:     "my-subdomain-1-a",
@@ -1157,7 +1207,7 @@ var _ = Describe("RouteRepository", func() {
 				},
 			}
 			Expect(
-				k8sClient.Create(context.Background(), cfRoute),
+				k8sClient.Create(ctx, cfRoute),
 			).To(Succeed())
 
 			labelsPatch = nil
@@ -1202,36 +1252,20 @@ var _ = Describe("RouteRepository", func() {
 					Expect(patchErr).NotTo(HaveOccurred())
 					Expect(routeRecord.GUID).To(Equal(route1GUID))
 					Expect(routeRecord.SpaceGUID).To(Equal(space.Name))
-					Expect(routeRecord.Labels).To(Equal(
-						map[string]string{
-							"key-one": "value-one",
-							"key-two": "value-two",
-						},
-					))
-					Expect(routeRecord.Annotations).To(Equal(
-						map[string]string{
-							"key-one": "value-one",
-							"key-two": "value-two",
-						},
-					))
+					Expect(routeRecord.Labels).To(HaveKeyWithValue("key-one", "value-one"))
+					Expect(routeRecord.Labels).To(HaveKeyWithValue("key-two", "value-two"))
+					Expect(routeRecord.Annotations).To(HaveKeyWithValue("key-one", "value-one"))
+					Expect(routeRecord.Annotations).To(HaveKeyWithValue("key-two", "value-two"))
 				})
 
 				It("sets the k8s CFRoute resource", func() {
 					Expect(patchErr).NotTo(HaveOccurred())
 					updatedCFRoute := new(korifiv1alpha1.CFRoute)
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cfRoute), updatedCFRoute)).To(Succeed())
-					Expect(updatedCFRoute.Labels).To(Equal(
-						map[string]string{
-							"key-one": "value-one",
-							"key-two": "value-two",
-						},
-					))
-					Expect(updatedCFRoute.Annotations).To(Equal(
-						map[string]string{
-							"key-one": "value-one",
-							"key-two": "value-two",
-						},
-					))
+					Expect(updatedCFRoute.Labels).To(HaveKeyWithValue("key-one", "value-one"))
+					Expect(updatedCFRoute.Labels).To(HaveKeyWithValue("key-two", "value-two"))
+					Expect(updatedCFRoute.Annotations).To(HaveKeyWithValue("key-one", "value-one"))
+					Expect(updatedCFRoute.Annotations).To(HaveKeyWithValue("key-two", "value-two"))
 				})
 			})
 
@@ -1365,6 +1399,9 @@ var _ = Describe("RouteRepository", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      route1GUID,
 					Namespace: space.Name,
+					Labels: map[string]string{
+						korifiv1alpha1.SpaceGUIDKey: space.Name,
+					},
 				},
 				Spec: korifiv1alpha1.CFRouteSpec{
 					Host:     "my-subdomain-1",
@@ -1377,7 +1414,7 @@ var _ = Describe("RouteRepository", func() {
 					Destinations: []korifiv1alpha1.Destination{
 						{
 							GUID: "destination-guid",
-							Port: tools.PtrTo(8080),
+							Port: tools.PtrTo[int32](8080),
 							AppRef: corev1.LocalObjectReference{
 								Name: "some-app-guid",
 							},

@@ -1,16 +1,14 @@
 package repositories_test
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"sort"
 	"time"
 
 	"code.cloudfoundry.org/korifi/api/authorization"
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
-	. "code.cloudfoundry.org/korifi/api/repositories"
+	"code.cloudfoundry.org/korifi/api/repositories"
+	"code.cloudfoundry.org/korifi/api/repositories/fake"
 	"code.cloudfoundry.org/korifi/api/repositories/fakeawaiter"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/env"
@@ -23,8 +21,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
+	gomega_types "github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,10 +37,12 @@ var _ = Describe("AppRepository", func() {
 	var (
 		appAwaiter *fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFApp,
+			korifiv1alpha1.CFApp,
 			korifiv1alpha1.CFAppList,
 			*korifiv1alpha1.CFAppList,
 		]
-		appRepo *AppRepo
+		sorter  *fake.AppSorter
+		appRepo *repositories.AppRepo
 		cfOrg   *korifiv1alpha1.CFOrg
 		cfSpace *korifiv1alpha1.CFSpace
 		cfApp   *korifiv1alpha1.CFApp
@@ -51,10 +51,18 @@ var _ = Describe("AppRepository", func() {
 	BeforeEach(func() {
 		appAwaiter = &fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFApp,
+			korifiv1alpha1.CFApp,
 			korifiv1alpha1.CFAppList,
 			*korifiv1alpha1.CFAppList,
 		]{}
-		appRepo = NewAppRepo(namespaceRetriever, userClientFactory, nsPerms, appAwaiter)
+		sorter = new(fake.AppSorter)
+		sorter.SortStub = func(records []repositories.AppRecord, _ string) []repositories.AppRecord {
+			return records
+		}
+		userClientFactory = userClientFactory.WithWrappingFunc(func(client client.WithWatch) client.WithWatch {
+			return authorization.NewSpaceFilteringClient(client, k8sClient, nsPerms)
+		})
+		appRepo = repositories.NewAppRepo(namespaceRetriever, userClientFactory, appAwaiter, sorter)
 
 		cfOrg = createOrgWithCleanup(ctx, prefixedGUID("org"))
 		cfSpace = createSpaceWithCleanup(ctx, cfOrg.Name, prefixedGUID("space1"))
@@ -65,7 +73,7 @@ var _ = Describe("AppRepository", func() {
 	Describe("GetApp", func() {
 		var (
 			appGUID string
-			app     AppRecord
+			app     repositories.AppRecord
 			getErr  error
 		)
 
@@ -91,56 +99,28 @@ var _ = Describe("AppRepository", func() {
 				Expect(app.Revision).To(Equal(CFAppRevisionValue))
 				Expect(app.Name).To(Equal(cfApp.Spec.DisplayName))
 				Expect(app.SpaceGUID).To(Equal(cfSpace.Name))
-				Expect(app.State).To(Equal(DesiredState("STOPPED")))
+				Expect(app.State).To(Equal(repositories.DesiredState("STOPPED")))
 				Expect(app.DropletGUID).To(Equal(cfApp.Spec.CurrentDropletRef.Name))
-				Expect(app.Lifecycle).To(Equal(Lifecycle{
+				Expect(app.Lifecycle).To(Equal(repositories.Lifecycle{
 					Type: string(cfApp.Spec.Lifecycle.Type),
-					Data: LifecycleData{
+					Data: repositories.LifecycleData{
 						Buildpacks: cfApp.Spec.Lifecycle.Data.Buildpacks,
 						Stack:      cfApp.Spec.Lifecycle.Data.Stack,
 					},
 				}))
-				Expect(app.IsStaged).To(BeFalse())
+				Expect(app.IsStaged).To(BeTrue())
 				Expect(app.DeletedAt).To(BeNil())
+
+				Expect(app.Relationships()).To(Equal(map[string]string{
+					"space": app.SpaceGUID,
+				}))
 			})
 
-			When("the app has staged condition true", func() {
+			When("the app has no current droplet set", func() {
 				BeforeEach(func() {
-					cfApp.Status.Conditions = []metav1.Condition{{
-						Type:               korifiv1alpha1.StatusConditionReady,
-						Status:             metav1.ConditionTrue,
-						LastTransitionTime: metav1.Now(),
-						Reason:             "staged",
-						Message:            "staged",
-					}}
-					Expect(k8sClient.Status().Update(ctx, cfApp)).To(Succeed())
-					Eventually(func(g Gomega) {
-						app := korifiv1alpha1.CFApp{}
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cfApp), &app)).To(Succeed())
-						g.Expect(app.Status.Conditions).NotTo(BeEmpty())
-					}).Should(Succeed())
-				})
-
-				It("sets IsStaged to true", func() {
-					Expect(getErr).ToNot(HaveOccurred())
-					Expect(app.IsStaged).To(BeTrue())
-				})
-			})
-
-			When("the app has staged condition false", func() {
-				BeforeEach(func() {
-					meta.SetStatusCondition(&cfApp.Status.Conditions, metav1.Condition{
-						Type:    korifiv1alpha1.StatusConditionReady,
-						Status:  metav1.ConditionFalse,
-						Reason:  "appStaged",
-						Message: "",
-					})
-					Expect(k8sClient.Status().Update(ctx, cfApp)).To(Succeed())
-					Eventually(func(g Gomega) {
-						app := korifiv1alpha1.CFApp{}
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cfApp), &app)).To(Succeed())
-						g.Expect(meta.IsStatusConditionFalse(app.Status.Conditions, korifiv1alpha1.StatusConditionReady)).To(BeTrue())
-					}).Should(Succeed())
+					Expect(k8s.PatchResource(ctx, k8sClient, cfApp, func() {
+						cfApp.Spec.CurrentDropletRef.Name = ""
+					})).To(Succeed())
 				})
 
 				It("sets IsStaged to false", func() {
@@ -180,68 +160,16 @@ var _ = Describe("AppRepository", func() {
 		})
 	})
 
-	Describe("GetAppByNameAndSpace", func() {
-		var (
-			appRecord      AppRecord
-			getErr         error
-			querySpaceName string
-		)
-
-		BeforeEach(func() {
-			querySpaceName = cfSpace.Name
-		})
-
-		JustBeforeEach(func() {
-			appRecord, getErr = appRepo.GetAppByNameAndSpace(ctx, authInfo, cfApp.Spec.DisplayName, querySpaceName)
-		})
-
-		When("the user is able to get apps in the space", func() {
-			BeforeEach(func() {
-				createRoleBinding(ctx, userName, spaceManagerRole.Name, querySpaceName)
-			})
-
-			It("returns the record", func() {
-				Expect(getErr).NotTo(HaveOccurred())
-
-				Expect(appRecord.Name).To(Equal(cfApp.Spec.DisplayName))
-				Expect(appRecord.GUID).To(Equal(cfApp.Name))
-				Expect(appRecord.EtcdUID).To(Equal(cfApp.UID))
-				Expect(appRecord.SpaceGUID).To(Equal(cfSpace.Name))
-				Expect(appRecord.State).To(BeEquivalentTo(cfApp.Spec.DesiredState))
-				Expect(appRecord.Lifecycle.Type).To(BeEquivalentTo(cfApp.Spec.Lifecycle.Type))
-			})
-		})
-
-		When("the user is not authorized in the space at all", func() {
-			It("returns a forbidden error", func() {
-				Expect(getErr).To(matchers.WrapErrorAssignableToTypeOf(apierrors.ForbiddenError{}))
-				Expect(getErr.(apierrors.ForbiddenError).ResourceType()).To(Equal(SpaceResourceType))
-			})
-		})
-
-		When("the App doesn't exist in the Space (but is in another Space)", func() {
-			BeforeEach(func() {
-				space2 := createSpaceWithCleanup(ctx, cfOrg.Name, prefixedGUID("space2"))
-				querySpaceName = space2.Name
-				createRoleBinding(ctx, userName, spaceDeveloperRole.Name, querySpaceName)
-			})
-
-			It("returns a NotFoundError", func() {
-				Expect(getErr).To(matchers.WrapErrorAssignableToTypeOf(apierrors.NotFoundError{}))
-			})
-		})
-	})
-
 	Describe("ListApps", func() {
 		var (
-			message ListAppsMessage
-			appList []AppRecord
+			message repositories.ListAppsMessage
+			appList []repositories.AppRecord
 			cfApp2  *korifiv1alpha1.CFApp
 			listErr error
 		)
 
 		BeforeEach(func() {
-			message = ListAppsMessage{}
+			message = repositories.ListAppsMessage{OrderBy: "foo"}
 
 			space2 := createSpaceWithCleanup(ctx, cfOrg.Name, prefixedGUID("space2"))
 			space3 := createSpaceWithCleanup(ctx, cfOrg.Name, prefixedGUID("space3"))
@@ -262,12 +190,17 @@ var _ = Describe("AppRepository", func() {
 				MatchFields(IgnoreExtras, Fields{"GUID": Equal(cfApp.Name)}),
 				MatchFields(IgnoreExtras, Fields{"GUID": Equal(cfApp2.Name)}),
 			))
+		})
 
-			sortedByName := sort.SliceIsSorted(appList, func(i, j int) bool {
-				return appList[i].Name < appList[j].Name
-			})
+		It("sorts the apps", func() {
+			Expect(sorter.SortCallCount()).To(Equal(1))
+			sortedApps, field := sorter.SortArgsForCall(0)
+			Expect(field).To(Equal("foo"))
 
-			Expect(sortedByName).To(BeTrue(), fmt.Sprintf("AppList was not sorted by Name : App1 : %s , App2: %s", appList[0].Name, appList[1].Name))
+			Expect(sortedApps).To(ConsistOf(
+				MatchFields(IgnoreExtras, Fields{"GUID": Equal(cfApp.Name)}),
+				MatchFields(IgnoreExtras, Fields{"GUID": Equal(cfApp2.Name)}),
+			))
 		})
 
 		When("there are apps in non-cf namespaces", func() {
@@ -292,16 +225,6 @@ var _ = Describe("AppRepository", func() {
 			})
 		})
 
-		When("the client is not authorized to list apps", func() {
-			BeforeEach(func() {
-				authInfo = authorization.Info{}
-			})
-
-			It("errors", func() {
-				Expect(listErr).To(MatchError(ContainSubstring("failed to get identity")))
-			})
-		})
-
 		Describe("filtering", func() {
 			var cfApp12 *korifiv1alpha1.CFApp
 
@@ -312,7 +235,7 @@ var _ = Describe("AppRepository", func() {
 			Describe("filtering by name", func() {
 				When("no Apps exist that match the filter", func() {
 					BeforeEach(func() {
-						message = ListAppsMessage{Names: []string{"some-other-app"}}
+						message = repositories.ListAppsMessage{Names: []string{"some-other-app"}}
 					})
 
 					It("returns an empty list of apps", func() {
@@ -322,7 +245,7 @@ var _ = Describe("AppRepository", func() {
 
 				When("some Apps match the filter", func() {
 					BeforeEach(func() {
-						message = ListAppsMessage{Names: []string{cfApp2.Spec.DisplayName, cfApp12.Spec.DisplayName}}
+						message = repositories.ListAppsMessage{Names: []string{cfApp2.Spec.DisplayName, cfApp12.Spec.DisplayName}}
 					})
 
 					It("returns the matching apps", func() {
@@ -338,7 +261,7 @@ var _ = Describe("AppRepository", func() {
 			Describe("filtering by guid", func() {
 				When("no Apps exist that match the filter", func() {
 					BeforeEach(func() {
-						message = ListAppsMessage{Guids: []string{"some-other-app-guid"}}
+						message = repositories.ListAppsMessage{Guids: []string{"some-other-app-guid"}}
 					})
 
 					It("returns an empty list of apps", func() {
@@ -349,7 +272,7 @@ var _ = Describe("AppRepository", func() {
 
 				When("some Apps match the filter", func() {
 					BeforeEach(func() {
-						message = ListAppsMessage{Guids: []string{cfApp.Name, cfApp2.Name}}
+						message = repositories.ListAppsMessage{Guids: []string{cfApp.Name, cfApp2.Name}}
 					})
 
 					It("returns the matching apps", func() {
@@ -365,7 +288,7 @@ var _ = Describe("AppRepository", func() {
 			Describe("filtering by space", func() {
 				When("no Apps exist that match the filter", func() {
 					BeforeEach(func() {
-						message = ListAppsMessage{SpaceGuids: []string{"some-other-space-guid"}}
+						message = repositories.ListAppsMessage{SpaceGUIDs: []string{"some-other-space-guid"}}
 					})
 
 					It("returns an empty list of apps", func() {
@@ -376,7 +299,7 @@ var _ = Describe("AppRepository", func() {
 
 				When("some Apps match the filter", func() {
 					BeforeEach(func() {
-						message = ListAppsMessage{SpaceGuids: []string{cfSpace.Name}}
+						message = repositories.ListAppsMessage{SpaceGUIDs: []string{cfSpace.Name}}
 					})
 
 					It("returns the matching apps", func() {
@@ -392,7 +315,7 @@ var _ = Describe("AppRepository", func() {
 			Describe("filtering by both name and space", func() {
 				When("no Apps exist that match the union of the filters", func() {
 					BeforeEach(func() {
-						message = ListAppsMessage{Names: []string{cfApp.Spec.DisplayName}, SpaceGuids: []string{"some-other-space-guid"}}
+						message = repositories.ListAppsMessage{Names: []string{cfApp.Spec.DisplayName}, SpaceGUIDs: []string{"some-other-space-guid"}}
 					})
 
 					When("an App matches by Name but not by Space", func() {
@@ -404,7 +327,7 @@ var _ = Describe("AppRepository", func() {
 
 					When("an App matches by Space but not by Name", func() {
 						BeforeEach(func() {
-							message = ListAppsMessage{Names: []string{"fake-app-name"}, SpaceGuids: []string{cfSpace.Name}}
+							message = repositories.ListAppsMessage{Names: []string{"fake-app-name"}, SpaceGUIDs: []string{cfSpace.Name}}
 						})
 
 						It("returns an empty list of apps", func() {
@@ -416,7 +339,7 @@ var _ = Describe("AppRepository", func() {
 
 				When("some Apps match the union of the filters", func() {
 					BeforeEach(func() {
-						message = ListAppsMessage{Names: []string{cfApp12.Spec.DisplayName}, SpaceGuids: []string{cfSpace.Name}}
+						message = repositories.ListAppsMessage{Names: []string{cfApp12.Spec.DisplayName}, SpaceGUIDs: []string{cfSpace.Name}}
 					})
 
 					It("returns the matching apps", func() {
@@ -430,19 +353,19 @@ var _ = Describe("AppRepository", func() {
 			Describe("filtering by label selector", func() {
 				BeforeEach(func() {
 					Expect(k8s.PatchResource(ctx, k8sClient, cfApp, func() {
-						cfApp.Labels = map[string]string{"foo": "FOO1"}
+						cfApp.Labels["foo"] = "FOO1"
 					})).To(Succeed())
 					Expect(k8s.PatchResource(ctx, k8sClient, cfApp2, func() {
-						cfApp2.Labels = map[string]string{"foo": "FOO2"}
+						cfApp2.Labels["foo"] = "FOO2"
 					})).To(Succeed())
 					Expect(k8s.PatchResource(ctx, k8sClient, cfApp12, func() {
-						cfApp12.Labels = map[string]string{"not_foo": "NOT_FOO"}
+						cfApp12.Labels["not_foo"] = "NOT_FOO"
 					})).To(Succeed())
 				})
 
 				DescribeTable("valid label selectors",
 					func(selector string, appGUIDPrefixes ...string) {
-						serviceBindings, err := appRepo.ListApps(context.Background(), authInfo, ListAppsMessage{
+						serviceBindings, err := appRepo.ListApps(ctx, authInfo, repositories.ListAppsMessage{
 							LabelSelector: selector,
 						})
 						Expect(err).NotTo(HaveOccurred())
@@ -465,7 +388,7 @@ var _ = Describe("AppRepository", func() {
 
 				When("the label selector is invalid", func() {
 					BeforeEach(func() {
-						message = ListAppsMessage{LabelSelector: "~"}
+						message = repositories.ListAppsMessage{LabelSelector: "~"}
 					})
 
 					It("returns an error", func() {
@@ -481,13 +404,24 @@ var _ = Describe("AppRepository", func() {
 			testAppName = "test-app-name"
 		)
 		var (
-			appCreateMessage CreateAppMessage
-			createdAppRecord AppRecord
+			appCreateMessage repositories.CreateAppMessage
+			createdAppRecord repositories.AppRecord
 			createErr        error
 		)
 
 		BeforeEach(func() {
-			appCreateMessage = initializeAppCreateMessage(testAppName, cfSpace.Name)
+			appCreateMessage = repositories.CreateAppMessage{
+				Name:      testAppName,
+				SpaceGUID: cfSpace.Name,
+				State:     "STOPPED",
+				Lifecycle: repositories.Lifecycle{
+					Type: "buildpack",
+					Data: repositories.LifecycleData{
+						Buildpacks: []string{},
+						Stack:      "cflinuxfs3",
+					},
+				},
+			}
 		})
 
 		JustBeforeEach(func() {
@@ -519,23 +453,17 @@ var _ = Describe("AppRepository", func() {
 				Expect(createdAppRecord.UpdatedAt).To(PointTo(BeTemporally("~", time.Now(), timeCheckThreshold)))
 			})
 
-			When("no environment variables are given", func() {
-				BeforeEach(func() {
-					appCreateMessage.EnvironmentVariables = nil
-				})
+			It("creates an empty secret and sets the environment variable secret ref on the App", func() {
+				Expect(createErr).NotTo(HaveOccurred())
+				cfAppLookupKey := types.NamespacedName{Name: createdAppRecord.GUID, Namespace: cfSpace.Name}
+				createdCFApp := new(korifiv1alpha1.CFApp)
+				Expect(k8sClient.Get(ctx, cfAppLookupKey, createdCFApp)).To(Succeed())
+				Expect(createdCFApp.Spec.EnvSecretName).NotTo(BeEmpty())
 
-				It("creates an empty secret and sets the environment variable secret ref on the App", func() {
-					Expect(createErr).NotTo(HaveOccurred())
-					cfAppLookupKey := types.NamespacedName{Name: createdAppRecord.GUID, Namespace: cfSpace.Name}
-					createdCFApp := new(korifiv1alpha1.CFApp)
-					Expect(k8sClient.Get(ctx, cfAppLookupKey, createdCFApp)).To(Succeed())
-					Expect(createdCFApp.Spec.EnvSecretName).NotTo(BeEmpty())
-
-					secretLookupKey := types.NamespacedName{Name: createdCFApp.Spec.EnvSecretName, Namespace: cfSpace.Name}
-					createdSecret := new(corev1.Secret)
-					Expect(k8sClient.Get(ctx, secretLookupKey, createdSecret)).To(Succeed())
-					Expect(createdSecret.Data).To(BeEmpty())
-				})
+				secretLookupKey := types.NamespacedName{Name: createdCFApp.Spec.EnvSecretName, Namespace: cfSpace.Name}
+				createdSecret := new(corev1.Secret)
+				Expect(k8sClient.Get(ctx, secretLookupKey, createdSecret)).To(Succeed())
+				Expect(createdSecret.Data).To(BeEmpty())
 			})
 
 			When("environment variables are given", func() {
@@ -586,14 +514,14 @@ var _ = Describe("AppRepository", func() {
 
 			When("the lifecycle is docker", func() {
 				BeforeEach(func() {
-					appCreateMessage.Lifecycle = Lifecycle{
+					appCreateMessage.Lifecycle = repositories.Lifecycle{
 						Type: "docker",
 					}
 				})
 
 				It("creates an app with docker lifecycle", func() {
 					Expect(createErr).NotTo(HaveOccurred())
-					Expect(createdAppRecord.Lifecycle).To(Equal(Lifecycle{
+					Expect(createdAppRecord.Lifecycle).To(Equal(repositories.Lifecycle{
 						Type: "docker",
 					}))
 
@@ -616,27 +544,34 @@ var _ = Describe("AppRepository", func() {
 
 	Describe("PatchApp", func() {
 		var (
-			patchedAppRecord AppRecord
+			patchedAppRecord repositories.AppRecord
 			patchErr         error
 
-			appPatchMessage PatchAppMessage
+			appPatchMessage repositories.PatchAppMessage
 		)
 
 		BeforeEach(func() {
-			appPatchMessage = PatchAppMessage{
+			Expect(k8sClient.Create(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: cfApp.Namespace,
+					Name:      cfApp.Spec.EnvSecretName,
+				},
+			})).To(Succeed())
+
+			appPatchMessage = repositories.PatchAppMessage{
 				Name:      cfApp.Spec.DisplayName,
 				AppGUID:   cfApp.Name,
 				SpaceGUID: cfSpace.Name,
-				Lifecycle: &LifecyclePatch{
+				Lifecycle: &repositories.LifecyclePatch{
 					Type: tools.PtrTo("docker"),
-					Data: &LifecycleDataPatch{
+					Data: &repositories.LifecycleDataPatch{
 						Buildpacks: &[]string{
 							"some-buildpack",
 						},
 						Stack: "cflinuxfs3",
 					},
 				},
-				MetadataPatch: MetadataPatch{
+				MetadataPatch: repositories.MetadataPatch{
 					Labels:      map[string]*string{"l": tools.PtrTo("lv")},
 					Annotations: map[string]*string{"a": tools.PtrTo("av")},
 				},
@@ -660,9 +595,9 @@ var _ = Describe("AppRepository", func() {
 				Expect(patchedAppRecord.GUID).To(Equal(cfApp.Name))
 				Expect(patchedAppRecord.SpaceGUID).To(Equal(cfSpace.Name))
 				Expect(patchedAppRecord.Name).To(Equal(appPatchMessage.Name))
-				Expect(patchedAppRecord.Lifecycle).To(Equal(Lifecycle{
+				Expect(patchedAppRecord.Lifecycle).To(Equal(repositories.Lifecycle{
 					Type: "docker",
-					Data: LifecycleData{
+					Data: repositories.LifecycleData{
 						Buildpacks: []string{"some-buildpack"},
 						Stack:      "cflinuxfs3",
 					},
@@ -676,60 +611,8 @@ var _ = Describe("AppRepository", func() {
 						Stack:      "cflinuxfs3",
 					},
 				}))
-			})
-
-			Describe("patching labels and annotations", func() {
-				BeforeEach(func() {
-					Expect(k8s.PatchResource(ctx, k8sClient, cfApp, func() {
-						cfApp.Labels = map[string]string{
-							"A": "1",
-							"B": "2",
-							"C": "3",
-						}
-						cfApp.Annotations = map[string]string{
-							"X": "24",
-							"Y": "25",
-							"Z": "26",
-						}
-					})).To(Succeed())
-
-					appPatchMessage.Labels = map[string]*string{
-						"A": tools.PtrTo("42"),
-						"B": nil,
-						"D": tools.PtrTo("4"),
-					}
-					appPatchMessage.Annotations = map[string]*string{
-						"W": tools.PtrTo("23"),
-						"X": tools.PtrTo("112358"),
-						"Y": nil,
-					}
-				})
-
-				It("can add, update and delete them", func() {
-					Expect(patchErr).NotTo(HaveOccurred())
-
-					Expect(patchedAppRecord.Labels).To(Equal(map[string]string{
-						"A": "42",
-						"C": "3",
-						"D": "4",
-					}))
-					Expect(patchedAppRecord.Annotations).To(Equal(map[string]string{
-						"W": "23",
-						"X": "112358",
-						"Z": "26",
-					}))
-
-					Expect(cfApp.Labels).To(SatisfyAll(
-						HaveKeyWithValue("A", "42"),
-						HaveKeyWithValue("C", "3"),
-						HaveKeyWithValue("D", "4"),
-					))
-					Expect(cfApp.Annotations).To(SatisfyAll(
-						HaveKeyWithValue("W", "23"),
-						HaveKeyWithValue("X", "112358"),
-						HaveKeyWithValue("Z", "26"),
-					))
-				})
+				Expect(cfApp.Labels).To(HaveKeyWithValue("l", "lv"))
+				Expect(cfApp.Annotations).To(HaveKeyWithValue("a", "av"))
 			})
 
 			Describe("partially patching the app", func() {
@@ -756,9 +639,9 @@ var _ = Describe("AppRepository", func() {
 					})
 
 					It("does not change the app lifecyle", func() {
-						Expect(patchedAppRecord.Lifecycle).To(Equal(Lifecycle{
+						Expect(patchedAppRecord.Lifecycle).To(Equal(repositories.Lifecycle{
 							Type: string(originalCFApp.Spec.Lifecycle.Type),
-							Data: LifecycleData{
+							Data: repositories.LifecycleData{
 								Buildpacks: originalCFApp.Spec.Lifecycle.Data.Buildpacks,
 								Stack:      originalCFApp.Spec.Lifecycle.Data.Stack,
 							},
@@ -801,46 +684,6 @@ var _ = Describe("AppRepository", func() {
 					})
 				})
 			})
-
-			When("no environment variables are given", func() {
-				BeforeEach(func() {
-					appPatchMessage.EnvironmentVariables = nil
-				})
-
-				It("creates an empty secret and sets the environment variable secret ref on the App", func() {
-					Expect(patchErr).NotTo(HaveOccurred())
-
-					Expect(cfApp.Spec.EnvSecretName).NotTo(BeEmpty())
-
-					secretLookupKey := types.NamespacedName{Name: cfApp.Spec.EnvSecretName, Namespace: cfSpace.Name}
-					createdSecret := new(corev1.Secret)
-					Expect(k8sClient.Get(ctx, secretLookupKey, createdSecret)).To(Succeed())
-					Expect(createdSecret.Data).To(BeEmpty())
-				})
-			})
-
-			When("environment variables are given", func() {
-				BeforeEach(func() {
-					appPatchMessage.EnvironmentVariables = map[string]string{
-						"FOO": "foo",
-						"BAR": "bar",
-					}
-				})
-
-				It("creates an secret for the environment variables and sets the ref on the App", func() {
-					Expect(patchErr).NotTo(HaveOccurred())
-
-					Expect(cfApp.Spec.EnvSecretName).NotTo(BeEmpty())
-
-					secretLookupKey := types.NamespacedName{Name: cfApp.Spec.EnvSecretName, Namespace: cfSpace.Name}
-					createdSecret := new(corev1.Secret)
-					Expect(k8sClient.Get(ctx, secretLookupKey, createdSecret)).To(Succeed())
-					Expect(createdSecret.Data).To(MatchAllKeys(Keys{
-						"FOO": BeEquivalentTo("foo"),
-						"BAR": BeEquivalentTo("bar"),
-					}))
-				})
-			})
 		})
 
 		When("the user is not authorized in the space", func() {
@@ -869,21 +712,18 @@ var _ = Describe("AppRepository", func() {
 		)
 
 		var (
-			envSecretName string
-			secretRecord  AppEnvVarsRecord
-			patchErr      error
+			secretRecord repositories.AppEnvVarsRecord
+			patchErr     error
 		)
 
 		BeforeEach(func() {
-			envSecretName = cfApp.Name + "-env"
-
 			envVars := map[string]string{
 				key0: "VAL0",
 				key1: "original-value",
 			}
 			secret := corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      GenerateEnvSecretName(cfApp.Name),
+					Name:      cfApp.Spec.EnvSecretName,
 					Namespace: cfSpace.Name,
 				},
 				StringData: envVars,
@@ -899,7 +739,7 @@ var _ = Describe("AppRepository", func() {
 				key1: value1,
 				key2: &value2,
 			}
-			patchEnvMsg := PatchAppEnvVarsMessage{
+			patchEnvMsg := repositories.PatchAppEnvVarsMessage{
 				AppGUID:              cfApp.Name,
 				SpaceGUID:            cfSpace.Name,
 				EnvironmentVariables: newEnvVars,
@@ -923,13 +763,16 @@ var _ = Describe("AppRepository", func() {
 			})
 
 			It("patches the underlying secret", func() {
-				cfAppSecretLookupKey := types.NamespacedName{Name: envSecretName, Namespace: cfSpace.Name}
-
-				var updatedSecret corev1.Secret
-				err := k8sClient.Get(ctx, cfAppSecretLookupKey, &updatedSecret)
+				envSecret := corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      cfApp.Spec.EnvSecretName,
+						Namespace: cfSpace.Name,
+					},
+				}
+				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(&envSecret), &envSecret)
 				Expect(err).NotTo(HaveOccurred())
 
-				Expect(asMapOfStrings(updatedSecret.Data)).To(SatisfyAll(
+				Expect(asMapOfStrings(envSecret.Data)).To(SatisfyAll(
 					HaveLen(2),
 					HaveKeyWithValue(key0, "VAL0"),
 					HaveKeyWithValue(key2, "VAL2"),
@@ -944,154 +787,12 @@ var _ = Describe("AppRepository", func() {
 		})
 	})
 
-	Describe("CreateOrPatchAppEnvVars", func() {
-		const (
-			key1 = "KEY1"
-			key2 = "KEY2"
-		)
-
-		var (
-			envSecretName            string
-			envSecret                CreateOrPatchAppEnvVarsMessage
-			returnedAppEnvVarsRecord AppEnvVarsRecord
-			returnedErr              error
-		)
-
-		BeforeEach(func() {
-			envSecretName = cfApp.Name + "-env"
-			env := map[string]string{
-				key1: "VAL1",
-				key2: "VAL2",
-			}
-			envSecret = CreateOrPatchAppEnvVarsMessage{
-				AppGUID:              cfApp.Name,
-				AppEtcdUID:           cfApp.GetUID(),
-				SpaceGUID:            cfSpace.Name,
-				EnvironmentVariables: env,
-			}
-		})
-
-		JustBeforeEach(func() {
-			returnedAppEnvVarsRecord, returnedErr = appRepo.CreateOrPatchAppEnvVars(ctx, authInfo, envSecret)
-		})
-
-		When("the user is authorized", func() {
-			BeforeEach(func() {
-				createRoleBinding(ctx, userName, spaceDeveloperRole.Name, cfSpace.Name)
-			})
-
-			When("the secret doesn't already exist", func() {
-				It("returns a record matching the input and no error", func() {
-					Expect(returnedErr).NotTo(HaveOccurred())
-					Expect(returnedAppEnvVarsRecord.AppGUID).To(Equal(envSecret.AppGUID))
-					Expect(returnedAppEnvVarsRecord.SpaceGUID).To(Equal(envSecret.SpaceGUID))
-					Expect(returnedAppEnvVarsRecord.EnvironmentVariables).To(HaveLen(len(envSecret.EnvironmentVariables)))
-				})
-
-				It("returns a record with the created Secret's name", func() {
-					Expect(returnedAppEnvVarsRecord.Name).ToNot(BeEmpty())
-				})
-
-				It("the App record GUID returned should equal the App GUID provided", func() {
-					// Used a strings.Trim to remove characters, which cause the behavior in Issue #103
-					envSecret.AppGUID = "estringtrimmedguid"
-
-					returnedUpdatedAppEnvVarsRecord, returnedUpdatedErr := appRepo.CreateOrPatchAppEnvVars(ctx, authInfo, envSecret)
-					Expect(returnedUpdatedErr).ToNot(HaveOccurred())
-					Expect(returnedUpdatedAppEnvVarsRecord.AppGUID).To(Equal(envSecret.AppGUID), "Expected App GUID to match after transform")
-				})
-
-				It("creates a secret that matches the request record", func() {
-					cfAppSecretLookupKey := types.NamespacedName{Name: envSecretName, Namespace: cfSpace.Name}
-					createdCFAppSecret := &corev1.Secret{}
-					Expect(k8sClient.Get(ctx, cfAppSecretLookupKey, createdCFAppSecret)).To(Succeed())
-
-					// Secret has an owner reference that points to the App CR
-					Expect(createdCFAppSecret.OwnerReferences).To(ConsistOf([]metav1.OwnerReference{
-						{
-							APIVersion: "korifi.cloudfoundry.org/v1alpha1",
-							Kind:       "CFApp",
-							Name:       cfApp.Name,
-							UID:        cfApp.GetUID(),
-						},
-					}))
-
-					Expect(createdCFAppSecret.Name).To(Equal(envSecretName))
-					Expect(createdCFAppSecret.Labels).To(HaveKeyWithValue(CFAppGUIDLabel, cfApp.Name))
-					Expect(createdCFAppSecret.Data).To(HaveLen(len(envSecret.EnvironmentVariables)))
-				})
-			})
-
-			When("the secret does exist", func() {
-				const (
-					key0 = "KEY0"
-				)
-				var originalEnvVars map[string]string
-				BeforeEach(func() {
-					originalEnvVars = map[string]string{
-						key0: "VAL0",
-						key1: "original-value", // This variable will change after the manifest is applied
-					}
-					originalSecret := corev1.Secret{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      envSecretName,
-							Namespace: cfSpace.Name,
-							Labels: map[string]string{
-								CFAppGUIDLabel: cfApp.Name,
-							},
-						},
-						StringData: originalEnvVars,
-					}
-					Expect(
-						k8sClient.Create(ctx, &originalSecret),
-					).To(Succeed())
-				})
-
-				It("returns a record matching the input and no error", func() {
-					Expect(returnedErr).NotTo(HaveOccurred())
-					Expect(returnedAppEnvVarsRecord.AppGUID).To(Equal(envSecret.AppGUID))
-					Expect(returnedAppEnvVarsRecord.Name).ToNot(BeEmpty())
-					Expect(returnedAppEnvVarsRecord.SpaceGUID).To(Equal(envSecret.SpaceGUID))
-					Expect(returnedAppEnvVarsRecord.EnvironmentVariables).To(SatisfyAll(
-						HaveLen(3),
-						HaveKeyWithValue(key0, "VAL0"),
-						HaveKeyWithValue(key1, "VAL1"),
-						HaveKeyWithValue(key2, "VAL2"),
-					))
-				})
-
-				It("creates a secret that matches the request record", func() {
-					cfAppSecretLookupKey := types.NamespacedName{Name: envSecretName, Namespace: cfSpace.Name}
-
-					var updatedSecret corev1.Secret
-					err := k8sClient.Get(ctx, cfAppSecretLookupKey, &updatedSecret)
-					Expect(err).NotTo(HaveOccurred())
-
-					Expect(updatedSecret.Name).To(Equal(envSecretName))
-					Expect(updatedSecret.Labels).To(HaveKeyWithValue(CFAppGUIDLabel, cfApp.Name))
-					Expect(asMapOfStrings(updatedSecret.Data)).To(SatisfyAll(
-						HaveLen(3),
-						HaveKeyWithValue(key0, "VAL0"),
-						HaveKeyWithValue(key1, "VAL1"),
-						HaveKeyWithValue(key2, "VAL2"),
-					))
-				})
-			})
-		})
-
-		When("the user is not authorized in the space", func() {
-			It("returns a forbidden error", func() {
-				Expect(returnedErr).To(matchers.WrapErrorAssignableToTypeOf(apierrors.ForbiddenError{}))
-			})
-		})
-	})
-
 	Describe("SetCurrentDroplet", func() {
 		var (
 			dropletGUID string
 			appGUID     string
 
-			currentDropletRecord CurrentDropletRecord
+			currentDropletRecord repositories.CurrentDropletRecord
 			setDropletErr        error
 		)
 
@@ -1102,7 +803,7 @@ var _ = Describe("AppRepository", func() {
 		})
 
 		JustBeforeEach(func() {
-			currentDropletRecord, setDropletErr = appRepo.SetCurrentDroplet(ctx, authInfo, SetCurrentDropletMessage{
+			currentDropletRecord, setDropletErr = appRepo.SetCurrentDroplet(ctx, authInfo, repositories.SetCurrentDropletMessage{
 				AppGUID:     appGUID,
 				DropletGUID: dropletGUID,
 				SpaceGUID:   cfSpace.Name,
@@ -1124,7 +825,7 @@ var _ = Describe("AppRepository", func() {
 
 			It("returns a CurrentDroplet record", func() {
 				Expect(setDropletErr).NotTo(HaveOccurred())
-				Expect(currentDropletRecord).To(Equal(CurrentDropletRecord{
+				Expect(currentDropletRecord).To(Equal(repositories.CurrentDropletRecord{
 					AppGUID:     cfApp.Name,
 					DropletGUID: dropletGUID,
 				}))
@@ -1173,7 +874,7 @@ var _ = Describe("AppRepository", func() {
 
 		var (
 			appGUID           string
-			returnedAppRecord *AppRecord
+			returnedAppRecord *repositories.AppRecord
 			returnedErr       error
 			initialAppState   string
 			desiredAppState   string
@@ -1189,7 +890,7 @@ var _ = Describe("AppRepository", func() {
 			Expect(k8s.PatchResource(ctx, k8sClient, cfApp, func() {
 				cfApp.Spec.DesiredState = korifiv1alpha1.AppState(initialAppState)
 			})).To(Succeed())
-			appRecord, err := appRepo.SetAppDesiredState(ctx, authInfo, SetAppDesiredStateMessage{
+			appRecord, err := appRepo.SetAppDesiredState(ctx, authInfo, repositories.SetAppDesiredStateMessage{
 				AppGUID:      appGUID,
 				SpaceGUID:    cfSpace.Name,
 				DesiredState: desiredAppState,
@@ -1289,7 +990,7 @@ var _ = Describe("AppRepository", func() {
 
 			When("the app doesn't exist", func() {
 				It("returns an error", func() {
-					_, err := appRepo.SetAppDesiredState(ctx, authInfo, SetAppDesiredStateMessage{
+					_, err := appRepo.SetAppDesiredState(ctx, authInfo, repositories.SetAppDesiredStateMessage{
 						AppGUID:      "fake-app-guid",
 						SpaceGUID:    cfSpace.Name,
 						DesiredState: appStartedValue,
@@ -1319,7 +1020,7 @@ var _ = Describe("AppRepository", func() {
 		})
 
 		JustBeforeEach(func() {
-			deleteAppErr = appRepo.DeleteApp(ctx, authInfo, DeleteAppMessage{
+			deleteAppErr = appRepo.DeleteApp(ctx, authInfo, repositories.DeleteAppMessage{
 				AppGUID:   appGUID,
 				SpaceGUID: cfSpace.Name,
 			})
@@ -1348,7 +1049,7 @@ var _ = Describe("AppRepository", func() {
 			envVars      map[string]string
 			secretName   string
 			appGUID      string
-			appEnvRecord AppEnvRecord
+			appEnvRecord repositories.AppEnvRecord
 			getAppEnvErr error
 		)
 
@@ -1642,7 +1343,7 @@ func generateVcapServiceSecretDataByte() (map[string][]byte, error) {
 	}
 
 	vcapServicesData, err := json.Marshal(env.VCAPServices{
-		env.UserProvided: []env.ServiceDetails{
+		"user-provided": []env.ServiceDetails{
 			serviceDetails,
 		},
 	})
@@ -1665,3 +1366,63 @@ func asMapOfStrings(data map[string][]byte) map[string]string {
 
 	return result
 }
+
+var _ = DescribeTable("AppSorter",
+	func(a1, a2 repositories.AppRecord, field string, match gomega_types.GomegaMatcher) {
+		Expect(repositories.AppComparator(field)(a1, a2)).To(match)
+	},
+	Entry("default sorting",
+		repositories.AppRecord{Name: "first-app"},
+		repositories.AppRecord{Name: "second-app"},
+		"",
+		BeNumerically("<", 0),
+	),
+	Entry("name",
+		repositories.AppRecord{Name: "first-app"},
+		repositories.AppRecord{Name: "second-app"},
+		"name",
+		BeNumerically("<", 0),
+	),
+	Entry("-name",
+		repositories.AppRecord{Name: "first-app"},
+		repositories.AppRecord{Name: "second-app"},
+		"-name",
+		BeNumerically(">", 0),
+	),
+	Entry("created_at",
+		repositories.AppRecord{CreatedAt: time.UnixMilli(1)},
+		repositories.AppRecord{CreatedAt: time.UnixMilli(2)},
+		"created_at",
+		BeNumerically("<", 0),
+	),
+	Entry("-created_at",
+		repositories.AppRecord{CreatedAt: time.UnixMilli(1)},
+		repositories.AppRecord{CreatedAt: time.UnixMilli(2)},
+		"-created_at",
+		BeNumerically(">", 0),
+	),
+	Entry("updated_at",
+		repositories.AppRecord{UpdatedAt: tools.PtrTo(time.UnixMilli(1))},
+		repositories.AppRecord{UpdatedAt: tools.PtrTo(time.UnixMilli(2))},
+		"updated_at",
+		BeNumerically("<", 0),
+	),
+	Entry("-updated_at",
+		repositories.AppRecord{UpdatedAt: tools.PtrTo(time.UnixMilli(1))},
+		repositories.AppRecord{UpdatedAt: tools.PtrTo(time.UnixMilli(2))},
+		"-updated_at",
+		BeNumerically(">", 0),
+	),
+	Entry("state",
+		repositories.AppRecord{State: repositories.StartedState},
+		repositories.AppRecord{State: repositories.StoppedState},
+		"state",
+		BeNumerically("<", 0),
+	),
+	Entry("-state",
+		repositories.AppRecord{State: repositories.StartedState},
+		repositories.AppRecord{State: repositories.StoppedState},
+		"-state",
+		BeNumerically(">", 0),
+	),
+)

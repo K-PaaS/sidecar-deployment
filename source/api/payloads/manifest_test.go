@@ -95,7 +95,7 @@ var _ = Describe("Manifest payload", func() {
 
 			When("Instances is negative", func() {
 				BeforeEach(func() {
-					testManifest.Instances = tools.PtrTo(-1)
+					testManifest.Instances = tools.PtrTo[int32](-1)
 				})
 
 				It("returns a validation error", func() {
@@ -120,6 +120,16 @@ var _ = Describe("Manifest payload", func() {
 
 				It("returns a validation error", func() {
 					expectUnprocessableEntityError(validateErr, "disk_quota must be greater than 0MB")
+				})
+			})
+
+			When("the disk quota is a floating point number", func() {
+				BeforeEach(func() {
+					testManifest.DiskQuota = tools.PtrTo("1.5G")
+				})
+
+				It("does not return a validation error", func() {
+					Expect(validateErr).NotTo(HaveOccurred())
 				})
 			})
 
@@ -156,7 +166,7 @@ var _ = Describe("Manifest payload", func() {
 
 			When("HealthCheckInvocationTimeout is not positive", func() {
 				BeforeEach(func() {
-					testManifest.HealthCheckInvocationTimeout = tools.PtrTo(int64(0))
+					testManifest.HealthCheckInvocationTimeout = tools.PtrTo(int32(0))
 				})
 
 				It("returns a validation error", func() {
@@ -176,7 +186,7 @@ var _ = Describe("Manifest payload", func() {
 
 			When("Timeout is not positive", func() {
 				BeforeEach(func() {
-					testManifest.Timeout = tools.PtrTo(int64(0))
+					testManifest.Timeout = tools.PtrTo(int32(0))
 				})
 
 				It("returns a validation error", func() {
@@ -201,6 +211,16 @@ var _ = Describe("Manifest payload", func() {
 
 				It("returns a validation error", func() {
 					expectUnprocessableEntityError(validateErr, "memory must be greater than 0MB")
+				})
+			})
+
+			When("the memory is a floating point number", func() {
+				BeforeEach(func() {
+					testManifest.Memory = tools.PtrTo("0.5G")
+				})
+
+				It("does not return a validation error", func() {
+					Expect(validateErr).NotTo(HaveOccurred())
 				})
 			})
 
@@ -436,6 +456,16 @@ var _ = Describe("Manifest payload", func() {
 				})
 			})
 
+			When("the disk quota is a floating point number", func() {
+				BeforeEach(func() {
+					testManifestProcess.DiskQuota = tools.PtrTo("1.5G")
+				})
+
+				It("does not return a validation error", func() {
+					Expect(validateErr).NotTo(HaveOccurred())
+				})
+			})
+
 			When("the alt disk quota doesn't supply a unit", func() {
 				BeforeEach(func() {
 					testManifestProcess.AltDiskQuota = tools.PtrTo("1024")
@@ -469,7 +499,7 @@ var _ = Describe("Manifest payload", func() {
 
 			When("HealthCheckInvocationTimeout is not positive", func() {
 				BeforeEach(func() {
-					testManifestProcess.HealthCheckInvocationTimeout = tools.PtrTo(int64(0))
+					testManifestProcess.HealthCheckInvocationTimeout = tools.PtrTo(int32(0))
 				})
 
 				It("returns a validation error", func() {
@@ -489,7 +519,7 @@ var _ = Describe("Manifest payload", func() {
 
 			When("Instances is negative", func() {
 				BeforeEach(func() {
-					testManifestProcess.Instances = tools.PtrTo(-1)
+					testManifestProcess.Instances = tools.PtrTo[int32](-1)
 				})
 
 				It("returns a validation error", func() {
@@ -517,9 +547,19 @@ var _ = Describe("Manifest payload", func() {
 				})
 			})
 
+			When("the memory is a floating point number", func() {
+				BeforeEach(func() {
+					testManifestProcess.Memory = tools.PtrTo("0.5G")
+				})
+
+				It("does not return a validation error", func() {
+					Expect(validateErr).NotTo(HaveOccurred())
+				})
+			})
+
 			When("Timeout is not positive", func() {
 				BeforeEach(func() {
-					testManifestProcess.Timeout = tools.PtrTo(int64(0))
+					testManifestProcess.Timeout = tools.PtrTo(int32(0))
 				})
 
 				It("returns a validation error", func() {
@@ -539,11 +579,11 @@ var _ = Describe("Manifest payload", func() {
 						Command:                      tools.PtrTo("start-web.sh"),
 						DiskQuota:                    tools.PtrTo("512M"),
 						HealthCheckHTTPEndpoint:      tools.PtrTo("/stuff"),
-						HealthCheckInvocationTimeout: tools.PtrTo(int64(90)),
+						HealthCheckInvocationTimeout: tools.PtrTo(int32(90)),
 						HealthCheckType:              tools.PtrTo("http"),
-						Instances:                    tools.PtrTo(3),
+						Instances:                    tools.PtrTo[int32](3),
 						Memory:                       tools.PtrTo("1G"),
-						Timeout:                      tools.PtrTo(int64(60)),
+						Timeout:                      tools.PtrTo(int32(60)),
 					}
 				})
 
@@ -564,7 +604,7 @@ var _ = Describe("Manifest payload", func() {
 								InvocationTimeoutSeconds: 90,
 							},
 						},
-						DesiredInstances: tools.PtrTo(3),
+						DesiredInstances: tools.PtrTo[int32](3),
 						MemoryMB:         1024,
 					}))
 				})
@@ -694,7 +734,7 @@ var _ = Describe("Manifest payload", func() {
 
 			When("Instances is specified", func() {
 				BeforeEach(func() {
-					processInfo.Instances = tools.PtrTo(3)
+					processInfo.Instances = tools.PtrTo[int32](3)
 				})
 
 				It("returns a message with DesiredInstances set to the parsed value", func() {

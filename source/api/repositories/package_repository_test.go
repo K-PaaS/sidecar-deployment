@@ -1,11 +1,11 @@
 package repositories_test
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"time"
 
+	"code.cloudfoundry.org/korifi/api/authorization"
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	"code.cloudfoundry.org/korifi/api/repositories"
 	"code.cloudfoundry.org/korifi/api/repositories/fake"
@@ -19,6 +19,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
+	gomega_types "github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,9 +32,11 @@ var _ = Describe("PackageRepository", func() {
 		repoCreator      *fake.RepositoryCreator
 		conditionAwaiter *fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFPackage,
+			korifiv1alpha1.CFPackage,
 			korifiv1alpha1.CFPackageList,
 			*korifiv1alpha1.CFPackageList,
 		]
+		sorter      *fake.PackageSorter
 		packageRepo *repositories.PackageRepo
 		org         *korifiv1alpha1.CFOrg
 		space       *korifiv1alpha1.CFSpace
@@ -45,16 +48,24 @@ var _ = Describe("PackageRepository", func() {
 		repoCreator = new(fake.RepositoryCreator)
 		conditionAwaiter = &fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFPackage,
+			korifiv1alpha1.CFPackage,
 			korifiv1alpha1.CFPackageList,
 			*korifiv1alpha1.CFPackageList,
 		]{}
+		sorter = new(fake.PackageSorter)
+		sorter.SortStub = func(records []repositories.PackageRecord, _ string) []repositories.PackageRecord {
+			return records
+		}
+
 		packageRepo = repositories.NewPackageRepo(
-			userClientFactory,
+			userClientFactory.WithWrappingFunc(func(client client.WithWatch) client.WithWatch {
+				return authorization.NewSpaceFilteringClient(client, k8sClient, nsPerms)
+			}),
 			namespaceRetriever,
-			nsPerms,
 			repoCreator,
 			"container.registry/foo/my/prefix-",
 			conditionAwaiter,
+			sorter,
 		)
 		org = createOrgWithCleanup(ctx, prefixedGUID("org"))
 		space = createSpaceWithCleanup(ctx, org.Name, prefixedGUID("space"))
@@ -142,7 +153,7 @@ var _ = Describe("PackageRepository", func() {
 					Expect(createErr).NotTo(HaveOccurred())
 
 					packageGUID := createdPackage.GUID
-					Expect(packageGUID).NotTo(BeEmpty())
+					Expect(packageGUID).To(matchers.BeValidUUID())
 					Expect(createdPackage.Type).To(Equal("bits"))
 					Expect(createdPackage.AppGUID).To(Equal(appGUID))
 					Expect(createdPackage.State).To(Equal("AWAITING_UPLOAD"))
@@ -153,6 +164,10 @@ var _ = Describe("PackageRepository", func() {
 					Expect(createdPackage.CreatedAt).To(BeTemporally("~", time.Now(), timeCheckThreshold))
 
 					Expect(createdPackage.UpdatedAt).To(PointTo(BeTemporally("~", time.Now(), timeCheckThreshold)))
+
+					Expect(createdPackage.Relationships()).To(Equal(map[string]string{
+						"app": appGUID,
+					}))
 
 					packageNSName := types.NamespacedName{Name: packageGUID, Namespace: space.Name}
 					createdCFPackage := new(korifiv1alpha1.CFPackage)
@@ -230,7 +245,7 @@ var _ = Describe("PackageRepository", func() {
 					Expect(createErr).NotTo(HaveOccurred())
 
 					packageGUID := createdPackage.GUID
-					Expect(packageGUID).NotTo(BeEmpty())
+					Expect(packageGUID).To(matchers.BeValidUUID())
 					Expect(createdPackage.Type).To(Equal("docker"))
 					Expect(createdPackage.AppGUID).To(Equal(appGUID))
 					Expect(createdPackage.Labels).To(HaveKeyWithValue("bob", "foo"))
@@ -466,7 +481,7 @@ var _ = Describe("PackageRepository", func() {
 
 		JustBeforeEach(func() {
 			var err error
-			packageList, err = packageRepo.ListPackages(context.Background(), authInfo, listMessage)
+			packageList, err = packageRepo.ListPackages(ctx, authInfo, listMessage)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -482,6 +497,9 @@ var _ = Describe("PackageRepository", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      package1GUID,
 						Namespace: space.Name,
+						Labels: map[string]string{
+							korifiv1alpha1.SpaceGUIDKey: space.Name,
+						},
 					},
 					Spec: korifiv1alpha1.CFPackageSpec{
 						Type: "bits",
@@ -496,6 +514,9 @@ var _ = Describe("PackageRepository", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      package2GUID,
 						Namespace: space2.Name,
+						Labels: map[string]string{
+							korifiv1alpha1.SpaceGUIDKey: space2.Name,
+						},
 					},
 					Spec: korifiv1alpha1.CFPackageSpec{
 						Type: "bits",
@@ -520,6 +541,9 @@ var _ = Describe("PackageRepository", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      noPermissionsPackageGUID,
 						Namespace: noPermissionsSpace.Name,
+						Labels: map[string]string{
+							korifiv1alpha1.SpaceGUIDKey: noPermissionsSpace.Name,
+						},
 					},
 					Spec: korifiv1alpha1.CFPackageSpec{
 						Type: "bits",
@@ -678,7 +702,7 @@ var _ = Describe("PackageRepository", func() {
 			existingCFPackage = &korifiv1alpha1.CFPackage{
 				TypeMeta: metav1.TypeMeta{
 					Kind:       "CFPackage",
-					APIVersion: korifiv1alpha1.GroupVersion.String(),
+					APIVersion: korifiv1alpha1.SchemeGroupVersion.String(),
 				},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      packageGUID,
@@ -861,3 +885,33 @@ var _ = Describe("PackageRepository", func() {
 		})
 	})
 })
+
+var _ = DescribeTable("PackageSorter",
+	func(p1, p2 repositories.PackageRecord, field string, match gomega_types.GomegaMatcher) {
+		Expect(repositories.PackageComparator(field)(p1, p2)).To(match)
+	},
+	Entry("created_at",
+		repositories.PackageRecord{CreatedAt: time.UnixMilli(1)},
+		repositories.PackageRecord{CreatedAt: time.UnixMilli(2)},
+		"created_at",
+		BeNumerically("<", 0),
+	),
+	Entry("-created_at",
+		repositories.PackageRecord{CreatedAt: time.UnixMilli(1)},
+		repositories.PackageRecord{CreatedAt: time.UnixMilli(2)},
+		"-created_at",
+		BeNumerically(">", 0),
+	),
+	Entry("updated_at",
+		repositories.PackageRecord{UpdatedAt: tools.PtrTo(time.UnixMilli(1))},
+		repositories.PackageRecord{UpdatedAt: tools.PtrTo(time.UnixMilli(2))},
+		"updated_at",
+		BeNumerically("<", 0),
+	),
+	Entry("-updated_at",
+		repositories.PackageRecord{UpdatedAt: tools.PtrTo(time.UnixMilli(1))},
+		repositories.PackageRecord{UpdatedAt: tools.PtrTo(time.UnixMilli(2))},
+		"-updated_at",
+		BeNumerically(">", 0),
+	),
+)

@@ -81,6 +81,7 @@ type buildpackBuildReconciler struct {
 func (r *buildpackBuildReconciler) SetupWithManager(mgr ctrl.Manager) *builder.Builder {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&korifiv1alpha1.CFBuild{}).
+		Named("buildpack_build").
 		Watches(
 			&korifiv1alpha1.BuildWorkload{},
 			handler.EnqueueRequestsFromMapFunc(buildworkloadToBuild),
@@ -131,8 +132,8 @@ func (r *buildpackBuildReconciler) ReconcileBuild(
 ) (ctrl.Result, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
-	stagingStatus := shared.GetConditionOrSetAsUnknown(&cfBuild.Status.Conditions, korifiv1alpha1.StagingConditionType, cfBuild.Generation)
-	if stagingStatus == metav1.ConditionUnknown {
+	stagingStatus := meta.FindStatusCondition(cfBuild.Status.Conditions, korifiv1alpha1.StagingConditionType)
+	if stagingStatus == nil {
 		err := r.createBuildWorkload(ctx, cfBuild, cfApp, cfPackage)
 		if err != nil {
 			log.Info("failed to create BuildWorkload", "reason", err)

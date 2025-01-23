@@ -28,7 +28,6 @@ const (
 	CFSpaceFinalizerName = "cfSpace.korifi.cloudfoundry.org"
 
 	SpaceNameKey = "cloudfoundry.org/space-name"
-	SpaceGUIDKey = "cloudfoundry.org/space-guid"
 )
 
 // CFSpaceSpec defines the desired state of CFSpace
@@ -53,6 +52,7 @@ type CFSpaceStatus struct {
 //+kubebuilder:subresource:status
 //+kubebuilder:printcolumn:name="Display Name",type=string,JSONPath=`.spec.displayName`
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=`.metadata.creationTimestamp`
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // CFSpace is the Schema for the cfspaces API
 type CFSpace struct {
@@ -73,6 +73,7 @@ func (s CFSpace) UniqueName() string {
 }
 
 //+kubebuilder:object:root=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // CFSpaceList contains a list of CFSpace
 type CFSpaceList struct {
@@ -81,8 +82,8 @@ type CFSpaceList struct {
 	Items           []CFSpace `json:"items"`
 }
 
-func (s CFSpace) StatusConditions() []metav1.Condition {
-	return s.Status.Conditions
+func (s *CFSpace) StatusConditions() *[]metav1.Condition {
+	return &s.Status.Conditions
 }
 
 func (s *CFSpace) GetStatus() status.NamespaceStatus {

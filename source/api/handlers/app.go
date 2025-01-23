@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"sort"
-	"time"
+	"strconv"
 
 	"code.cloudfoundry.org/korifi/api/authorization"
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
@@ -15,6 +14,7 @@ import (
 	"code.cloudfoundry.org/korifi/api/presenter"
 	"code.cloudfoundry.org/korifi/api/repositories"
 	"code.cloudfoundry.org/korifi/api/routing"
+	"code.cloudfoundry.org/korifi/api/tools/singleton"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 
 	"github.com/go-logr/logr"
@@ -24,6 +24,7 @@ const (
 	AppsPath                          = "/v3/apps"
 	AppPath                           = "/v3/apps/{guid}"
 	AppCurrentDropletRelationshipPath = "/v3/apps/{guid}/relationships/current_droplet"
+	AppDropletsPath                   = "/v3/apps/{guid}/droplets"
 	AppCurrentDropletPath             = "/v3/apps/{guid}/droplets/current"
 	AppProcessesPath                  = "/v3/apps/{guid}/processes"
 	AppProcessByTypePath              = "/v3/apps/{guid}/processes/{type}"
@@ -38,6 +39,7 @@ const (
 	AppFeaturePath                    = "/v3/apps/{guid}/features/{name}"
 	AppPackagesPath                   = "/v3/apps/{guid}/packages"
 	AppSSHEnabledPath                 = "/v3/apps/{guid}/ssh_enabled"
+	AppInstanceRestartPath            = "/v3/apps/{guid}/processes/{processType}/instances/{instance}"
 	invalidDropletMsg                 = "Unable to assign current droplet. Ensure the droplet exists and belongs to this app."
 
 	AppStartedState = "STARTED"
@@ -58,6 +60,11 @@ type CFAppRepository interface {
 	PatchApp(context.Context, authorization.Info, repositories.PatchAppMessage) (repositories.AppRecord, error)
 }
 
+//counterfeiter:generate -o fake -fake-name PodRepository . PodRepository
+type PodRepository interface {
+	DeletePod(context.Context, authorization.Info, string, repositories.ProcessRecord, string) error
+}
+
 type App struct {
 	serverURL        url.URL
 	appRepo          CFAppRepository
@@ -69,6 +76,7 @@ type App struct {
 	spaceRepo        CFSpaceRepository
 	packageRepo      CFPackageRepository
 	requestValidator RequestValidator
+	podRepo          PodRepository
 }
 
 func NewApp(
@@ -82,6 +90,7 @@ func NewApp(
 	spaceRepo CFSpaceRepository,
 	packageRepo CFPackageRepository,
 	requestValidator RequestValidator,
+	podRepo PodRepository,
 ) *App {
 	return &App{
 		serverURL:        serverURL,
@@ -94,6 +103,7 @@ func NewApp(
 		spaceRepo:        spaceRepo,
 		packageRepo:      packageRepo,
 		requestValidator: requestValidator,
+		podRepo:          podRepo,
 	}
 }
 
@@ -149,50 +159,18 @@ func (h *App) list(r *http.Request) (*routing.Response, error) { //nolint:dupl
 	authInfo, _ := authorization.InfoFromContext(r.Context())
 	logger := logr.FromContextOrDiscard(r.Context()).WithName("handlers.app.list")
 
-	appListFilter := new(payloads.AppList)
-	err := h.requestValidator.DecodeAndValidateURLValues(r, appListFilter)
+	payload := new(payloads.AppList)
+	err := h.requestValidator.DecodeAndValidateURLValues(r, payload)
 	if err != nil {
 		return nil, apierrors.LogAndReturn(logger, err, "Unable to decode request query parameters")
 	}
 
-	appList, err := h.appRepo.ListApps(r.Context(), authInfo, appListFilter.ToMessage())
+	appList, err := h.appRepo.ListApps(r.Context(), authInfo, payload.ToMessage())
 	if err != nil {
 		return nil, apierrors.LogAndReturn(logger, err, "Failed to fetch app(s) from Kubernetes")
 	}
 
-	h.sortList(appList, appListFilter.OrderBy)
-
 	return routing.NewResponse(http.StatusOK).WithBody(presenter.ForList(presenter.ForApp, appList, h.serverURL, *r.URL)), nil
-}
-
-func timePtrAfter(t1, t2 *time.Time) bool {
-	if t1 == nil || t2 == nil {
-		return false
-	}
-
-	return (*t1).After(*t2)
-}
-
-func (h *App) sortList(appList []repositories.AppRecord, order string) {
-	switch order {
-	case "":
-	case "created_at":
-		sort.Slice(appList, func(i, j int) bool { return timePtrAfter(&appList[j].CreatedAt, &appList[i].CreatedAt) })
-	case "-created_at":
-		sort.Slice(appList, func(i, j int) bool { return timePtrAfter(&appList[i].CreatedAt, &appList[j].CreatedAt) })
-	case "updated_at":
-		sort.Slice(appList, func(i, j int) bool { return timePtrAfter(appList[j].UpdatedAt, appList[i].UpdatedAt) })
-	case "-updated_at":
-		sort.Slice(appList, func(i, j int) bool { return timePtrAfter(appList[i].UpdatedAt, appList[j].UpdatedAt) })
-	case "name":
-		sort.Slice(appList, func(i, j int) bool { return appList[i].Name < appList[j].Name })
-	case "-name":
-		sort.Slice(appList, func(i, j int) bool { return appList[i].Name > appList[j].Name })
-	case "state":
-		sort.Slice(appList, func(i, j int) bool { return appList[i].State < appList[j].State })
-	case "-state":
-		sort.Slice(appList, func(i, j int) bool { return appList[i].State > appList[j].State })
-	}
 }
 
 func (h *App) setCurrentDroplet(r *http.Request) (*routing.Response, error) {
@@ -238,6 +216,24 @@ func (h *App) setCurrentDroplet(r *http.Request) (*routing.Response, error) {
 	}
 
 	return routing.NewResponse(http.StatusOK).WithBody(presenter.ForCurrentDroplet(currentDroplet, h.serverURL)), nil
+}
+
+func (h *App) listDroplets(r *http.Request) (*routing.Response, error) {
+	authInfo, _ := authorization.InfoFromContext(r.Context())
+	logger := logr.FromContextOrDiscard(r.Context()).WithName("handlers.app.get-droplets")
+	appGUID := routing.URLParam(r, "guid")
+
+	app, err := h.appRepo.GetApp(r.Context(), authInfo, appGUID)
+	if err != nil {
+		return nil, apierrors.LogAndReturn(logger, apierrors.ForbiddenAsNotFound(err), "Failed to fetch app from Kubernetes", "AppGUID", appGUID)
+	}
+
+	droplets, err := h.dropletRepo.ListDroplets(r.Context(), authInfo, repositories.ListDropletsMessage{AppGUIDs: []string{appGUID}})
+	if err != nil {
+		return nil, apierrors.LogAndReturn(logger, apierrors.ForbiddenAsNotFound(err), "Failed to fetch droplet from Kubernetes", "dropletGUID", app.DropletGUID)
+	}
+
+	return routing.NewResponse(http.StatusOK).WithBody(presenter.ForList(presenter.ForDroplet, droplets, h.serverURL, *r.URL)), nil
 }
 
 func (h *App) getCurrentDroplet(r *http.Request) (*routing.Response, error) {
@@ -503,6 +499,24 @@ func getDomainsForRoutes(ctx context.Context, domainRepo CFDomainRepository, aut
 	return routeRecords, nil
 }
 
+func (h *App) getEnvVars(r *http.Request) (*routing.Response, error) {
+	authInfo, _ := authorization.InfoFromContext(r.Context())
+	logger := logr.FromContextOrDiscard(r.Context()).WithName("handlers.app.get-env-vars")
+	appGUID := routing.URLParam(r, "guid")
+
+	appEnvRecord, err := h.appRepo.GetAppEnv(r.Context(), authInfo, appGUID)
+	if err != nil {
+		return nil, apierrors.LogAndReturn(logger, err, "Failed to fetch app environment variables", "AppGUID", appGUID)
+	}
+
+	appEnvVarsRecord := repositories.AppEnvVarsRecord{
+		AppGUID:              appEnvRecord.AppGUID,
+		EnvironmentVariables: appEnvRecord.EnvironmentVariables,
+	}
+
+	return routing.NewResponse(http.StatusOK).WithBody(presenter.ForAppEnvVars(appEnvVarsRecord, h.serverURL)), nil
+}
+
 func (h *App) updateEnvVars(r *http.Request) (*routing.Response, error) {
 	authInfo, _ := authorization.InfoFromContext(r.Context())
 	logger := logr.FromContextOrDiscard(r.Context()).WithName("handlers.app.update-env-vars")
@@ -550,12 +564,25 @@ func (h *App) getProcess(r *http.Request) (*routing.Response, error) {
 		return nil, apierrors.LogAndReturn(logger, apierrors.ForbiddenAsNotFound(err), "Failed to fetch app from Kubernetes", "AppGUID", appGUID)
 	}
 
-	process, err := h.processRepo.GetProcessByAppTypeAndSpace(r.Context(), authInfo, appGUID, processType, app.SpaceGUID)
+	process, err := h.getSingleProcess(r.Context(), authInfo, repositories.ListProcessesMessage{
+		AppGUIDs:     []string{appGUID},
+		ProcessTypes: []string{processType},
+		SpaceGUID:    app.SpaceGUID,
+	})
 	if err != nil {
-		return nil, apierrors.LogAndReturn(logger, err, "Failed to fetch process from Kubernetes", "AppGUID", appGUID)
+		return nil, apierrors.LogAndReturn(logger, err, "Failed to get process", "AppGUID", appGUID)
 	}
 
 	return routing.NewResponse(http.StatusOK).WithBody(presenter.ForProcess(process, h.serverURL)), nil
+}
+
+func (h *App) getSingleProcess(ctx context.Context, authInfo authorization.Info, listMessage repositories.ListProcessesMessage) (repositories.ProcessRecord, error) {
+	processes, err := h.processRepo.ListProcesses(ctx, authInfo, listMessage)
+	if err != nil {
+		return repositories.ProcessRecord{}, err
+	}
+
+	return singleton.Get(processes)
 }
 
 func (h *App) getProcessStats(r *http.Request) (*routing.Response, error) {
@@ -569,9 +596,13 @@ func (h *App) getProcessStats(r *http.Request) (*routing.Response, error) {
 		return nil, apierrors.LogAndReturn(logger, apierrors.ForbiddenAsNotFound(err), "Failed to fetch app from Kubernetes", "AppGUID", appGUID)
 	}
 
-	process, err := h.processRepo.GetProcessByAppTypeAndSpace(r.Context(), authInfo, appGUID, processType, app.SpaceGUID)
+	process, err := h.getSingleProcess(r.Context(), authInfo, repositories.ListProcessesMessage{
+		AppGUIDs:     []string{appGUID},
+		ProcessTypes: []string{processType},
+		SpaceGUID:    app.SpaceGUID,
+	})
 	if err != nil {
-		return nil, apierrors.LogAndReturn(logger, err, "Failed to fetch process from Kubernetes", "AppGUID", appGUID)
+		return nil, apierrors.LogAndReturn(logger, err, "Failed to get process", "AppGUID", appGUID)
 	}
 
 	processGUID := process.GUID
@@ -657,6 +688,52 @@ func (h *App) getAppFeature(r *http.Request) (*routing.Response, error) {
 	}
 }
 
+func (h *App) restartInstance(r *http.Request) (*routing.Response, error) {
+	authInfo, _ := authorization.InfoFromContext(r.Context())
+	logger := logr.FromContextOrDiscard(r.Context()).WithName("handlers.app.restart-instance")
+	appGUID := routing.URLParam(r, "guid")
+	instanceID := routing.URLParam(r, "instance")
+	processType := routing.URLParam(r, "processType")
+
+	app, err := h.appRepo.GetApp(r.Context(), authInfo, appGUID)
+	if err != nil {
+		return nil, apierrors.LogAndReturn(logger, apierrors.NewNotFoundError(nil, repositories.AppResourceType), "Failed to fetch app from Kubernetes", "AppGUID", appGUID)
+	}
+	appProcesses, err := h.processRepo.ListProcesses(r.Context(), authInfo, repositories.ListProcessesMessage{
+		AppGUIDs:  []string{appGUID},
+		SpaceGUID: app.SpaceGUID,
+	})
+	if err != nil {
+		return nil, apierrors.LogAndReturn(logger, err, "failed to list processes for app")
+	}
+
+	process, hasProcessType := findProcessType(appProcesses, processType)
+	if !hasProcessType {
+		return nil, apierrors.LogAndReturn(logger,
+			apierrors.NewNotFoundError(nil, repositories.ProcessResourceType),
+			"app does not have required process type",
+		)
+	}
+	instance, err := strconv.Atoi(instanceID)
+	if err != nil {
+		return nil, apierrors.LogAndReturn(
+			logger,
+			apierrors.AsUnprocessableEntity(err, "Invalid Instance ID. Instance ID is not a valid Integer.", apierrors.NotFoundError{}, apierrors.ForbiddenError{}),
+			"InstanceID", instanceID,
+		)
+	}
+	if int(process.DesiredInstances) <= instance {
+		return nil, apierrors.LogAndReturn(logger,
+			apierrors.NewNotFoundError(nil, fmt.Sprintf("Instance %d of process %s", instance, processType)), "Instance not found", "AppGUID", appGUID, "InstanceID", instanceID, "Process", process)
+	}
+	err = h.podRepo.DeletePod(r.Context(), authInfo, app.Revision, process, instanceID)
+	if err != nil {
+		return nil, apierrors.LogAndReturn(logger, apierrors.ForbiddenAsNotFound(err), "Failed to restart instance", "AppGUID", appGUID, "InstanceID", instanceID, "Process", process)
+	}
+
+	return routing.NewResponse(http.StatusNoContent), nil
+}
+
 func (h *App) UnauthenticatedRoutes() []routing.Route {
 	return nil
 }
@@ -667,6 +744,7 @@ func (h *App) AuthenticatedRoutes() []routing.Route {
 		{Method: "GET", Pattern: AppsPath, Handler: h.list},
 		{Method: "POST", Pattern: AppsPath, Handler: h.create},
 		{Method: "PATCH", Pattern: AppCurrentDropletRelationshipPath, Handler: h.setCurrentDroplet},
+		{Method: "GET", Pattern: AppDropletsPath, Handler: h.listDroplets},
 		{Method: "GET", Pattern: AppCurrentDropletPath, Handler: h.getCurrentDroplet},
 		{Method: "POST", Pattern: AppStartPath, Handler: h.start},
 		{Method: "POST", Pattern: AppStopPath, Handler: h.stop},
@@ -677,11 +755,13 @@ func (h *App) AuthenticatedRoutes() []routing.Route {
 		{Method: "GET", Pattern: AppProcessStatsByTypePath, Handler: h.getProcessStats},
 		{Method: "GET", Pattern: AppRoutesPath, Handler: h.getRoutes},
 		{Method: "DELETE", Pattern: AppPath, Handler: h.delete},
+		{Method: "GET", Pattern: AppEnvVarsPath, Handler: h.getEnvVars},
 		{Method: "PATCH", Pattern: AppEnvVarsPath, Handler: h.updateEnvVars},
 		{Method: "GET", Pattern: AppEnvPath, Handler: h.getEnvironment},
 		{Method: "GET", Pattern: AppPackagesPath, Handler: h.getPackages},
 		{Method: "GET", Pattern: AppFeaturePath, Handler: h.getAppFeature},
 		{Method: "PATCH", Pattern: AppPath, Handler: h.update},
 		{Method: "GET", Pattern: AppSSHEnabledPath, Handler: h.getSSHEnabled},
+		{Method: "DELETE", Pattern: AppInstanceRestartPath, Handler: h.restartInstance},
 	}
 }

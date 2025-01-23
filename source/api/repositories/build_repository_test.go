@@ -12,7 +12,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"code.cloudfoundry.org/korifi/api/authorization"
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	"code.cloudfoundry.org/korifi/api/repositories"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
@@ -25,7 +27,9 @@ var _ = Describe("BuildRepository", func() {
 	BeforeEach(func() {
 		buildRepo = repositories.NewBuildRepo(
 			namespaceRetriever,
-			userClientFactory,
+			userClientFactory.WithWrappingFunc(func(client client.WithWatch) client.WithWatch {
+				return authorization.NewSpaceFilteringClient(client, k8sClient, nsPerms)
+			}),
 		)
 	})
 
@@ -64,6 +68,9 @@ var _ = Describe("BuildRepository", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      buildGUID,
 					Namespace: namespace,
+					Labels: map[string]string{
+						korifiv1alpha1.SpaceGUIDKey: namespace,
+					},
 				},
 				Spec: korifiv1alpha1.CFBuildSpec{
 					PackageRef: corev1.LocalObjectReference{
@@ -167,6 +174,16 @@ var _ = Describe("BuildRepository", func() {
 
 					It("returns a record with an AppGUID field matching the CR", func() {
 						Expect(buildRecord.AppGUID).To(Equal(build2.Spec.AppRef.Name))
+					})
+
+					It("sets the space guid on the record", func() {
+						Expect(buildRecord.SpaceGUID).To(Equal(namespace2.Name))
+					})
+
+					It("returns record with relationships", func() {
+						Expect(buildRecord.Relationships()).To(Equal(map[string]string{
+							"app": build2.Spec.AppRef.Name,
+						}))
 					})
 				})
 
@@ -469,7 +486,7 @@ var _ = Describe("BuildRepository", func() {
 				It("returns correct build record", func() {
 					Expect(buildCreateErr).NotTo(HaveOccurred())
 
-					Expect(buildCreateRecord.GUID).NotTo(BeEmpty())
+					Expect(buildCreateRecord.GUID).To(matchers.BeValidUUID())
 					Expect(buildCreateRecord.Lifecycle.Type).To(Equal("docker"))
 					Expect(buildCreateRecord.Lifecycle.Data).To(Equal(repositories.LifecycleData{}))
 				})

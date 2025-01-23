@@ -17,15 +17,12 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"strings"
-
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
-	ProcessTypeWeb    = "web"
-	processNamePrefix = "cf-proc"
+	ProcessTypeWeb = "web"
 )
 
 // CFProcessSpec defines the desired state of CFProcess
@@ -46,7 +43,7 @@ type CFProcessSpec struct {
 	HealthCheck HealthCheck `json:"healthCheck"`
 
 	// The desired number of replicas to deploy
-	DesiredInstances *int `json:"desiredInstances,omitempty"`
+	DesiredInstances *int32 `json:"desiredInstances,omitempty"`
 
 	// The memory limit in MiB
 	MemoryMB int64 `json:"memoryMB"`
@@ -79,8 +76,8 @@ type HealthCheckData struct {
 	// The http endpoint to use with "http" healthchecks
 	HTTPEndpoint string `json:"httpEndpoint,omitempty"`
 
-	InvocationTimeoutSeconds int64 `json:"invocationTimeoutSeconds"`
-	TimeoutSeconds           int64 `json:"timeoutSeconds"`
+	InvocationTimeoutSeconds int32 `json:"invocationTimeoutSeconds"`
+	TimeoutSeconds           int32 `json:"timeoutSeconds"`
 }
 
 // CFProcessStatus defines the observed state of CFProcess
@@ -97,6 +94,7 @@ type CFProcessStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // CFProcess is the Schema for the cfprocesses API
 type CFProcess struct {
@@ -108,6 +106,7 @@ type CFProcess struct {
 }
 
 //+kubebuilder:object:root=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // CFProcessList contains a list of CFProcess
 type CFProcessList struct {
@@ -116,12 +115,8 @@ type CFProcessList struct {
 	Items           []CFProcess `json:"items"`
 }
 
-func (r *CFProcess) SetStableName(appGUID string) {
-	r.Name = strings.Join([]string{processNamePrefix, appGUID, r.Spec.ProcessType}, "-")
-	if r.Labels == nil {
-		r.Labels = map[string]string{}
-	}
-	r.Labels[CFProcessGUIDLabelKey] = r.Name
+func (p *CFProcess) StatusConditions() *[]metav1.Condition {
+	return &p.Status.Conditions
 }
 
 func init() {

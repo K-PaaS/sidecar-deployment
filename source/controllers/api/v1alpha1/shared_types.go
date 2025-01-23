@@ -5,6 +5,8 @@ import (
 )
 
 const (
+	VersionLabelKey = "korifi.cloudfoundry.org/version"
+
 	CFAppGUIDLabelKey        = "korifi.cloudfoundry.org/app-guid"
 	CFAppRevisionKey         = "korifi.cloudfoundry.org/app-rev"
 	CFAppLastStopRevisionKey = "korifi.cloudfoundry.org/last-stop-app-rev"
@@ -17,6 +19,11 @@ const (
 	CFRouteGUIDLabelKey      = "korifi.cloudfoundry.org/route-guid"
 	CFTaskGUIDLabelKey       = "korifi.cloudfoundry.org/task-guid"
 
+	SpaceGUIDKey            = "korifi.cloudfoundry.org/space-guid"
+	ServiceBindingTypeLabel = "korifi.cloudfoundry.org/service-binding-type"
+
+	PodIndexLabelKey = "apps.kubernetes.io/pod-index"
+
 	StagingConditionType   = "Staging"
 	SucceededConditionType = "Succeeded"
 
@@ -24,6 +31,12 @@ const (
 	PropagateServiceAccountAnnotation = "cloudfoundry.org/propagate-service-account"
 	PropagateDeletionAnnotation       = "cloudfoundry.org/propagate-deletion"
 	PropagatedFromLabel               = "cloudfoundry.org/propagated-from"
+
+	RelationshipsLabelPrefix    = "korifi.cloudfoundry.org/rel-"
+	RelServiceBrokerGUIDLabel   = RelationshipsLabelPrefix + "service-broker-guid"
+	RelServiceBrokerNameLabel   = RelationshipsLabelPrefix + "service-broker-name"
+	RelServiceOfferingGUIDLabel = RelationshipsLabelPrefix + "service-offering-guid"
+	RelServiceOfferingNameLabel = RelationshipsLabelPrefix + "service-offering-name"
 )
 
 type Lifecycle struct {

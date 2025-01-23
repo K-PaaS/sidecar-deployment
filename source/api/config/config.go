@@ -47,6 +47,22 @@ type (
 		AuthProxyHost   string        `yaml:"authProxyHost"`
 		AuthProxyCACert string        `yaml:"authProxyCACert"`
 		LogLevel        zapcore.Level `yaml:"logLevel"`
+
+		Experimental Experimental `yaml:"experimental"`
+	}
+
+	Experimental struct {
+		ManagedServices ManagedServices `yaml:"managedServices"`
+		UAA             UAA             `yaml:"uaa"`
+	}
+
+	ManagedServices struct {
+		Enabled bool `yaml:"enabled"`
+	}
+
+	UAA struct {
+		Enabled bool   `yaml:"enabled"`
+		URL     string `yaml:"url"`
 	}
 
 	RoleLevel string

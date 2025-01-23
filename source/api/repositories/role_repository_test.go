@@ -19,6 +19,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
+	gomega_types "github.com/onsi/gomega/types"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -32,6 +33,7 @@ var _ = Describe("RoleRepository", func() {
 		cfOrg               *korifiv1alpha1.CFOrg
 		createdRole         repositories.RoleRecord
 		authorizedInChecker *fake.AuthorizedInChecker
+		sorter              *fake.RoleSorter
 		createErr           error
 	)
 
@@ -44,13 +46,19 @@ var _ = Describe("RoleRepository", func() {
 			"cf_user":              {Name: rootNamespaceUserRole.Name},
 			"admin":                {Name: adminRole.Name, Propagate: true},
 		}
+		sorter = new(fake.RoleSorter)
+		sorter.SortStub = func(records []repositories.RoleRecord, _ string) []repositories.RoleRecord {
+			return records
+		}
 		orgRepo := repositories.NewOrgRepo(rootNamespace, k8sClient, userClientFactory, nsPerms, &fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFOrg,
+			korifiv1alpha1.CFOrg,
 			korifiv1alpha1.CFOrgList,
 			*korifiv1alpha1.CFOrgList,
 		]{})
 		spaceRepo := repositories.NewSpaceRepo(namespaceRetriever, orgRepo, userClientFactory, nsPerms, &fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFSpace,
+			korifiv1alpha1.CFSpace,
 			korifiv1alpha1.CFSpaceList,
 			*korifiv1alpha1.CFSpaceList,
 		]{})
@@ -62,6 +70,7 @@ var _ = Describe("RoleRepository", func() {
 			rootNamespace,
 			roleMappings,
 			namespaceRetriever,
+			sorter,
 		)
 
 		roleCreateMessage = repositories.CreateRoleMessage{}
@@ -412,6 +421,7 @@ var _ = Describe("RoleRepository", func() {
 			cfSpace, otherSpace *korifiv1alpha1.CFSpace
 			roles               []repositories.RoleRecord
 			listErr             error
+			message             repositories.ListRolesMessage
 		)
 
 		BeforeEach(func() {
@@ -422,10 +432,11 @@ var _ = Describe("RoleRepository", func() {
 			createRoleBinding(ctx, "my-user", spaceDeveloperRole.Name, cfSpace.Name, repositories.RoleGuidLabel, "2")
 			createRoleBinding(ctx, "my-user", spaceDeveloperRole.Name, otherSpace.Name, repositories.RoleGuidLabel, "3")
 			createRoleBinding(ctx, "my-user", orgUserRole.Name, otherOrg.Name, repositories.RoleGuidLabel, "4")
+			message = repositories.ListRolesMessage{OrderBy: "foo"}
 		})
 
 		JustBeforeEach(func() {
-			roles, listErr = roleRepo.ListRoles(ctx, authInfo)
+			roles, listErr = roleRepo.ListRoles(ctx, authInfo, message)
 		})
 
 		It("returns an empty list when user has no permissions to list roles", func() {
@@ -473,6 +484,26 @@ var _ = Describe("RoleRepository", func() {
 						"Type":  Equal("organization_user"),
 						"Space": BeEmpty(),
 						"Org":   Equal(cfOrg.Name),
+					}),
+				))
+			})
+
+			It("sorts the roles", func() {
+				Expect(sorter.SortCallCount()).To(Equal(1))
+				sortedRoles, field := sorter.SortArgsForCall(0)
+				Expect(field).To(Equal("foo"))
+				Expect(sortedRoles).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"GUID": Equal("1"),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"GUID": Equal("2"),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"GUID": Equal("5"),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"GUID": Equal("6"),
 					}),
 				))
 			})
@@ -633,6 +664,11 @@ var _ = Describe("RoleRepository", func() {
 					User:      "bob",
 					Kind:      "User",
 				}))
+
+				Expect(roleRecord.Relationships()).To(Equal(map[string]string{
+					"user":         "bob",
+					"organization": cfOrg.Name,
+				}))
 			})
 
 			When("the role does not exist", func() {
@@ -651,7 +687,7 @@ var _ = Describe("RoleRepository", func() {
 				})
 
 				It("returns an error", func() {
-					Expect(getErr).To(MatchError(ContainSubstring("multiple role bindings")))
+					Expect(getErr).To(BeAssignableToTypeOf(apierrors.UnprocessableEntityError{}))
 				})
 			})
 		})
@@ -707,3 +743,33 @@ var _ = Describe("RoleRepository", func() {
 		})
 	})
 })
+
+var _ = DescribeTable("RoleSorter",
+	func(r1, r2 repositories.RoleRecord, field string, match gomega_types.GomegaMatcher) {
+		Expect(repositories.RoleComparator(field)(r1, r2)).To(match)
+	},
+	Entry("created_at",
+		repositories.RoleRecord{CreatedAt: time.UnixMilli(1)},
+		repositories.RoleRecord{CreatedAt: time.UnixMilli(2)},
+		"created_at",
+		BeNumerically("<", 0),
+	),
+	Entry("-created_at",
+		repositories.RoleRecord{CreatedAt: time.UnixMilli(1)},
+		repositories.RoleRecord{CreatedAt: time.UnixMilli(2)},
+		"-created_at",
+		BeNumerically(">", 0),
+	),
+	Entry("updated_at",
+		repositories.RoleRecord{UpdatedAt: tools.PtrTo(time.UnixMilli(1))},
+		repositories.RoleRecord{UpdatedAt: tools.PtrTo(time.UnixMilli(2))},
+		"updated_at",
+		BeNumerically("<", 0),
+	),
+	Entry("-updated_at",
+		repositories.RoleRecord{UpdatedAt: tools.PtrTo(time.UnixMilli(1))},
+		repositories.RoleRecord{UpdatedAt: tools.PtrTo(time.UnixMilli(2))},
+		"-updated_at",
+		BeNumerically(">", 0),
+	),
+)

@@ -109,5 +109,41 @@ var _ = Describe("Controllers Finalizers Webhook", func() {
 				},
 			},
 		),
+		Entry("managed CF service instance",
+			&korifiv1alpha1.CFServiceInstance{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "test-org-" + uuid.NewString(),
+					Name:      uuid.NewString(),
+				},
+				Spec: korifiv1alpha1.CFServiceInstanceSpec{
+					Type: korifiv1alpha1.ManagedType,
+				},
+			},
+			korifiv1alpha1.CFServiceInstanceFinalizerName,
+		),
+		Entry("user-provided CF service instance",
+			&korifiv1alpha1.CFServiceInstance{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "test-org-" + uuid.NewString(),
+					Name:      uuid.NewString(),
+				},
+				Spec: korifiv1alpha1.CFServiceInstanceSpec{
+					Type: korifiv1alpha1.UserProvidedType,
+				},
+			},
+			korifiv1alpha1.CFServiceInstanceFinalizerName,
+		),
+		Entry("cfservicebinding",
+			&korifiv1alpha1.CFServiceBinding{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "test-org-" + uuid.NewString(),
+					Name:      uuid.NewString(),
+				},
+				Spec: korifiv1alpha1.CFServiceBindingSpec{
+					Type: korifiv1alpha1.CFServiceBindingTypeApp,
+				},
+			},
+			korifiv1alpha1.CFServiceBindingFinalizerName,
+		),
 	)
 })

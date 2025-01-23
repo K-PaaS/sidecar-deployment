@@ -28,7 +28,7 @@ import (
 	"time"
 
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
-	"code.cloudfoundry.org/korifi/controllers/config"
+	"code.cloudfoundry.org/korifi/kpack-image-builder/controllers/config"
 	"code.cloudfoundry.org/korifi/tools/image"
 	"code.cloudfoundry.org/korifi/tools/k8s"
 
@@ -78,35 +78,29 @@ func NewBuildWorkloadReconciler(
 	c client.Client,
 	scheme *runtime.Scheme,
 	log logr.Logger,
-	config *config.ControllerConfig,
+	config *config.Config,
 	imageConfigGetter ImageConfigGetter,
-	imageRepoPrefix string,
 	imageRepoCreator RepositoryCreator,
-	builderReadinessTimeout time.Duration,
 ) *k8s.PatchingReconciler[korifiv1alpha1.BuildWorkload, *korifiv1alpha1.BuildWorkload] {
 	buildWorkloadReconciler := BuildWorkloadReconciler{
-		k8sClient:               c,
-		scheme:                  scheme,
-		log:                     log,
-		controllerConfig:        config,
-		imageConfigGetter:       imageConfigGetter,
-		imageRepoPrefix:         imageRepoPrefix,
-		imageRepoCreator:        imageRepoCreator,
-		builderReadinessTimeout: builderReadinessTimeout,
+		k8sClient:         c,
+		scheme:            scheme,
+		log:               log,
+		controllerConfig:  config,
+		imageConfigGetter: imageConfigGetter,
+		imageRepoCreator:  imageRepoCreator,
 	}
 	return k8s.NewPatchingReconciler[korifiv1alpha1.BuildWorkload, *korifiv1alpha1.BuildWorkload](log, c, &buildWorkloadReconciler)
 }
 
 // BuildWorkloadReconciler reconciles a BuildWorkload object
 type BuildWorkloadReconciler struct {
-	k8sClient               client.Client
-	scheme                  *runtime.Scheme
-	log                     logr.Logger
-	controllerConfig        *config.ControllerConfig
-	imageConfigGetter       ImageConfigGetter
-	imageRepoPrefix         string
-	imageRepoCreator        RepositoryCreator
-	builderReadinessTimeout time.Duration
+	k8sClient         client.Client
+	scheme            *runtime.Scheme
+	log               logr.Logger
+	controllerConfig  *config.Config
+	imageConfigGetter ImageConfigGetter
+	imageRepoCreator  RepositoryCreator
 }
 
 func (r *BuildWorkloadReconciler) SetupWithManager(mgr ctrl.Manager) *builder.Builder {
@@ -210,7 +204,7 @@ func (r *BuildWorkloadReconciler) ReconcileResource(ctx context.Context, buildWo
 	}
 
 	if !builderReadyCondition.IsTrue() {
-		if time.Since(buildWorkload.CreationTimestamp.Time) < r.builderReadinessTimeout {
+		if time.Since(buildWorkload.CreationTimestamp.Time) < r.controllerConfig.BuilderReadinessTimeout {
 			log.Info("waiting for builder to be ready")
 			return ctrl.Result{RequeueAfter: time.Second}, nil
 		}
@@ -257,14 +251,6 @@ func (r *BuildWorkloadReconciler) ReconcileResource(ctx context.Context, buildWo
 			ObservedGeneration: buildWorkload.Generation,
 		})
 	} else if latestBuildSuccessful.IsTrue() {
-		meta.SetStatusCondition(&buildWorkload.Status.Conditions, metav1.Condition{
-			Type:               korifiv1alpha1.SucceededConditionType,
-			Status:             metav1.ConditionTrue,
-			Reason:             "BuildSucceeded",
-			Message:            "Image built successfully",
-			ObservedGeneration: buildWorkload.Generation,
-		})
-
 		foundServiceAccount := corev1.ServiceAccount{}
 		err = r.k8sClient.Get(ctx, types.NamespacedName{
 			Namespace: buildWorkload.Namespace,
@@ -280,6 +266,14 @@ func (r *BuildWorkloadReconciler) ReconcileResource(ctx context.Context, buildWo
 			log.Info("error when compiling the DropletStatus", "reason", err)
 			return ctrl.Result{}, err
 		}
+
+		meta.SetStatusCondition(&buildWorkload.Status.Conditions, metav1.Condition{
+			Type:               korifiv1alpha1.SucceededConditionType,
+			Status:             metav1.ConditionTrue,
+			Reason:             "BuildSucceeded",
+			Message:            "Image built successfully",
+			ObservedGeneration: buildWorkload.Generation,
+		})
 	}
 
 	return ctrl.Result{}, nil
@@ -440,7 +434,7 @@ func (r *BuildWorkloadReconciler) ensureKpackBuilderForBuildpacks(ctx context.Co
 	}
 
 	builderName := ComputeBuilderName(buildWorkload.Spec.Buildpacks)
-	builderRepo := fmt.Sprintf("%sbuilders-%s", r.imageRepoPrefix, builderName)
+	builderRepo := fmt.Sprintf("%sbuilders-%s", r.controllerConfig.ContainerRepositoryPrefix, builderName)
 	err = r.imageRepoCreator.CreateRepository(ctx, builderRepo)
 	if err != nil {
 		log.Info("failed creating builder repo", "reason", err)
@@ -875,7 +869,6 @@ func (r *BuildWorkloadReconciler) finalize(ctx context.Context, log logr.Logger,
 			return ctrl.Result{}, err
 		}
 
-		// This retry code is untested, because there isn't an obvious way to test it with TestEnv
 		hasRemainingBuilds, err := r.hasRemainingBuilds(ctx, buildWorkload)
 		if err != nil {
 			log.Info("failed to check for remaining builds for build workload", "reason", err)
@@ -931,5 +924,5 @@ func (r *BuildWorkloadReconciler) hasRemainingBuilds(ctx context.Context, buildW
 }
 
 func (r *BuildWorkloadReconciler) repositoryRef(appGUID string) string {
-	return r.imageRepoPrefix + appGUID + "-droplets"
+	return r.controllerConfig.ContainerRepositoryPrefix + appGUID + "-droplets"
 }

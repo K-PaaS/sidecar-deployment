@@ -3,15 +3,17 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"code.cloudfoundry.org/korifi/tools/k8s"
+	"github.com/BooleanCat/go-functional/v2/it"
+	"github.com/BooleanCat/go-functional/v2/it/itx"
 
 	"code.cloudfoundry.org/korifi/api/authorization"
 	apierrors "code.cloudfoundry.org/korifi/api/errors"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -23,20 +25,17 @@ const (
 )
 
 type DropletRepo struct {
-	userClientFactory    authorization.UserK8sClientFactory
-	namespaceRetriever   NamespaceRetriever
-	namespacePermissions *authorization.NamespacePermissions
+	userClientFactory  authorization.UserClientFactory
+	namespaceRetriever NamespaceRetriever
 }
 
 func NewDropletRepo(
-	userClientFactory authorization.UserK8sClientFactory,
+	userClientFactory authorization.UserClientFactory,
 	namespaceRetriever NamespaceRetriever,
-	namespacePermissions *authorization.NamespacePermissions,
 ) *DropletRepo {
 	return &DropletRepo{
-		userClientFactory:    userClientFactory,
-		namespaceRetriever:   namespaceRetriever,
-		namespacePermissions: namespacePermissions,
+		userClientFactory:  userClientFactory,
+		namespaceRetriever: namespaceRetriever,
 	}
 }
 
@@ -57,8 +56,26 @@ type DropletRecord struct {
 	Ports           []int32
 }
 
+func (r DropletRecord) Relationships() map[string]string {
+	return map[string]string{
+		"app": r.AppGUID,
+	}
+}
+
 type ListDropletsMessage struct {
 	PackageGUIDs []string
+	AppGUIDs     []string
+}
+
+func (m *ListDropletsMessage) createSelector() map[string]string {
+	newSelector := make(map[string]string)
+	if len(m.PackageGUIDs) > 0 {
+		newSelector[korifiv1alpha1.CFPackageGUIDLabelKey] = m.PackageGUIDs[0]
+	}
+	if len(m.AppGUIDs) > 0 {
+		newSelector[korifiv1alpha1.CFAppGUIDLabelKey] = m.AppGUIDs[0]
+	}
+	return newSelector
 }
 
 func (r *DropletRepo) GetDroplet(ctx context.Context, authInfo authorization.Info, dropletGUID string) (DropletRecord, error) {
@@ -67,7 +84,7 @@ func (r *DropletRepo) GetDroplet(ctx context.Context, authInfo authorization.Inf
 		return DropletRecord{}, err
 	}
 
-	return returnDroplet(*build)
+	return cfBuildToDroplet(build)
 }
 
 func (r *DropletRepo) getBuildAssociatedWithDroplet(ctx context.Context, authInfo authorization.Info, dropletGUID string) (*korifiv1alpha1.CFBuild, client.WithWatch, error) {
@@ -90,12 +107,12 @@ func (r *DropletRepo) getBuildAssociatedWithDroplet(ctx context.Context, authInf
 	return &build, userClient, nil
 }
 
-func returnDroplet(cfBuild korifiv1alpha1.CFBuild) (DropletRecord, error) {
+func cfBuildToDroplet(cfBuild *korifiv1alpha1.CFBuild) (DropletRecord, error) {
 	stagingStatus := getConditionValue(&cfBuild.Status.Conditions, StagingConditionType)
 	succeededStatus := getConditionValue(&cfBuild.Status.Conditions, SucceededConditionType)
 	if stagingStatus == metav1.ConditionFalse &&
 		succeededStatus == metav1.ConditionTrue {
-		return cfBuildToDropletRecord(cfBuild), nil
+		return cfBuildToDropletRecord(*cfBuild), nil
 	}
 	return DropletRecord{}, apierrors.NewNotFoundError(nil, DropletResourceType)
 }
@@ -137,39 +154,19 @@ func cfBuildToDropletRecord(cfBuild korifiv1alpha1.CFBuild) DropletRecord {
 }
 
 func (r *DropletRepo) ListDroplets(ctx context.Context, authInfo authorization.Info, message ListDropletsMessage) ([]DropletRecord, error) {
-	buildList := &korifiv1alpha1.CFBuildList{}
-
-	namespaces, err := r.namespacePermissions.GetAuthorizedSpaceNamespaces(ctx, authInfo)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list namespaces for spaces with user role bindings: %w", err)
-	}
-
 	userClient, err := r.userClientFactory.BuildClient(authInfo)
 	if err != nil {
 		return []DropletRecord{}, fmt.Errorf("failed to build user client: %w", err)
 	}
 
-	var allBuilds []korifiv1alpha1.CFBuild
-	for ns := range namespaces {
-		err := userClient.List(ctx, buildList, client.InNamespace(ns))
-		if k8serrors.IsForbidden(err) {
-			continue
-		}
-		if err != nil {
-			return []DropletRecord{}, apierrors.FromK8sError(err, BuildResourceType)
-		}
-		allBuilds = append(allBuilds, buildList.Items...)
+	buildList := &korifiv1alpha1.CFBuildList{}
+	err = userClient.List(ctx, buildList, client.MatchingLabels(message.createSelector()))
+	if err != nil {
+		return []DropletRecord{}, apierrors.FromK8sError(err, BuildResourceType)
 	}
 
-	return returnDropletList(Filter(allBuilds,
-		func(a korifiv1alpha1.CFBuild) bool {
-			return getConditionValue(&a.Status.Conditions, StagingConditionType) == metav1.ConditionFalse
-		},
-		func(a korifiv1alpha1.CFBuild) bool {
-			return getConditionValue(&a.Status.Conditions, SucceededConditionType) == metav1.ConditionTrue
-		},
-		SetPredicate(message.PackageGUIDs, func(s korifiv1alpha1.CFBuild) string { return s.Spec.PackageRef.Name }),
-	)), nil
+	filteredBuilds := itx.FromSlice(buildList.Items)
+	return slices.Collect(it.Map(filteredBuilds, cfBuildToDropletRecord)), nil
 }
 
 type UpdateDropletMessage struct {
@@ -190,14 +187,5 @@ func (r *DropletRepo) UpdateDroplet(ctx context.Context, authInfo authorization.
 		return DropletRecord{}, fmt.Errorf("failed to patch droplet metadata: %w", apierrors.FromK8sError(err, DropletResourceType))
 	}
 
-	return returnDroplet(*build)
-}
-
-func returnDropletList(droplets []korifiv1alpha1.CFBuild) []DropletRecord {
-	dropletRecords := make([]DropletRecord, 0, len(droplets))
-
-	for _, currentBuild := range droplets {
-		dropletRecords = append(dropletRecords, cfBuildToDropletRecord(currentBuild))
-	}
-	return dropletRecords
+	return cfBuildToDroplet(build)
 }

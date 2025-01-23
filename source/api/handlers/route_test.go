@@ -574,7 +574,7 @@ var _ = Describe("Route", func() {
 								Type: "queue",
 							},
 						},
-						Port:     tools.PtrTo(1234),
+						Port:     tools.PtrTo[int32](1234),
 						Protocol: tools.PtrTo("http1"),
 					},
 				},
@@ -612,7 +612,7 @@ var _ = Describe("Route", func() {
 				MatchFields(IgnoreExtras, Fields{
 					"AppGUID":     Equal("app-2-guid"),
 					"ProcessType": Equal("queue"),
-					"Port":        PointTo(Equal(1234)),
+					"Port":        PointTo(BeEquivalentTo(1234)),
 					"Protocol":    PointTo(Equal("http1")),
 				}),
 			))
@@ -698,7 +698,7 @@ var _ = Describe("Route", func() {
 			Expect(actualAuthInfo).To(Equal(authInfo))
 			Expect(message.RouteGUID).To(Equal("test-route-guid"))
 			Expect(message.SpaceGUID).To(Equal("test-space-guid"))
-			Expect(message.DestinationGuid).To(Equal("test-destination-guid"))
+			Expect(message.GUID).To(Equal("test-destination-guid"))
 
 			Expect(rr).To(HaveHTTPStatus(http.StatusNoContent))
 			Expect(rr).To(HaveHTTPBody(BeEmpty()))

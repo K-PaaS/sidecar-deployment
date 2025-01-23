@@ -21,6 +21,7 @@ import (
 	"code.cloudfoundry.org/korifi/api/payloads/validation"
 	"code.cloudfoundry.org/korifi/api/repositories"
 	"code.cloudfoundry.org/korifi/api/repositories/conditions"
+	"code.cloudfoundry.org/korifi/api/repositories/relationships"
 	"code.cloudfoundry.org/korifi/api/routing"
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/tools"
@@ -87,11 +88,11 @@ func main() {
 
 	ctrl.Log.Info("starting Korifi API", "version", version.Version)
 
-	privilegedCRClient, err := client.NewWithWatch(k8sClientConfig, client.Options{})
+	privilegedClient, err := client.NewWithWatch(k8sClientConfig, client.Options{})
 	if err != nil {
 		panic(fmt.Sprintf("could not create privileged k8s client: %v", err))
 	}
-	privilegedK8sClient, err := k8sclient.NewForConfig(k8sClientConfig)
+	privilegedClientset, err := k8sclient.NewForConfig(k8sClientConfig)
 	if err != nil {
 		panic(fmt.Sprintf("could not create privileged k8s client: %v", err))
 	}
@@ -111,11 +112,16 @@ func main() {
 		panic(fmt.Sprintf("could not create kubernetes REST mapper: %v", err))
 	}
 
-	userClientFactory := authorization.NewUnprivilegedClientFactory(k8sClientConfig, mapper, k8s.NewDefaultBackoff())
-
-	identityProvider := wireIdentityProvider(privilegedCRClient, k8sClientConfig)
+	identityProvider := wireIdentityProvider(privilegedClient, k8sClientConfig)
 	cachingIdentityProvider := authorization.NewCachingIdentityProvider(identityProvider, cache.NewExpiring())
-	nsPermissions := authorization.NewNamespacePermissions(privilegedCRClient, cachingIdentityProvider)
+	nsPermissions := authorization.NewNamespacePermissions(privilegedClient, cachingIdentityProvider)
+	userClientFactoryUnfiltered := authorization.NewUnprivilegedClientFactory(k8sClientConfig, mapper).
+		WithWrappingFunc(func(client client.WithWatch) client.WithWatch {
+			return k8s.NewRetryingClient(client, k8s.IsForbidden, k8s.NewDefaultBackoff())
+		})
+	userClientFactory := userClientFactoryUnfiltered.WithWrappingFunc(func(client client.WithWatch) client.WithWatch {
+		return authorization.NewSpaceFilteringClient(client, privilegedClient, nsPermissions)
+	})
 
 	serverURL, err := url.Parse(cfg.ServerURL)
 	if err != nil {
@@ -124,97 +130,105 @@ func main() {
 
 	orgRepo := repositories.NewOrgRepo(
 		cfg.RootNamespace,
-		privilegedCRClient,
-		userClientFactory,
+		privilegedClient,
+		userClientFactoryUnfiltered,
 		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFOrg, korifiv1alpha1.CFOrgList](conditionTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFOrg, korifiv1alpha1.CFOrg, korifiv1alpha1.CFOrgList](conditionTimeout),
 	)
 	spaceRepo := repositories.NewSpaceRepo(
 		namespaceRetriever,
 		orgRepo,
-		userClientFactory,
+		userClientFactoryUnfiltered,
 		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFSpace, korifiv1alpha1.CFSpaceList](conditionTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFSpace, korifiv1alpha1.CFSpace, korifiv1alpha1.CFSpaceList](conditionTimeout),
 	)
 	processRepo := repositories.NewProcessRepo(
 		namespaceRetriever,
 		userClientFactory,
-		nsPermissions,
 	)
 	podRepo := repositories.NewPodRepo(
-		userClientFactory,
+		userClientFactoryUnfiltered,
 	)
 	appRepo := repositories.NewAppRepo(
 		namespaceRetriever,
 		userClientFactory,
-		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFApp, korifiv1alpha1.CFAppList](conditionTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFApp, korifiv1alpha1.CFApp, korifiv1alpha1.CFAppList](conditionTimeout),
+		repositories.NewAppSorter(),
 	)
 	dropletRepo := repositories.NewDropletRepo(
 		userClientFactory,
 		namespaceRetriever,
-		nsPermissions,
 	)
 	routeRepo := repositories.NewRouteRepo(
 		namespaceRetriever,
 		userClientFactory,
-		nsPermissions,
 	)
 	domainRepo := repositories.NewDomainRepo(
-		userClientFactory,
+		userClientFactoryUnfiltered,
 		namespaceRetriever,
 		cfg.RootNamespace,
 	)
 	deploymentRepo := repositories.NewDeploymentRepo(
 		userClientFactory,
 		namespaceRetriever,
+		repositories.NewDeploymentSorter(),
 	)
 	buildRepo := repositories.NewBuildRepo(
 		namespaceRetriever,
 		userClientFactory,
 	)
+	logRepo := repositories.NewLogRepo(
+		userClientFactoryUnfiltered,
+		authorization.NewUnprivilegedClientsetFactory(k8sClientConfig),
+		repositories.DefaultLogStreamer,
+	)
 	runnerInfoRepo := repositories.NewRunnerInfoRepository(
-		userClientFactory,
+		userClientFactoryUnfiltered,
 		cfg.RunnerName,
 		cfg.RootNamespace,
 	)
 	packageRepo := repositories.NewPackageRepo(
 		userClientFactory,
 		namespaceRetriever,
-		nsPermissions,
 		toolsregistry.NewRepositoryCreator(cfg.ContainerRegistryType),
 		cfg.ContainerRepositoryPrefix,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFPackage, korifiv1alpha1.CFPackageList](conditionTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFPackage, korifiv1alpha1.CFPackage, korifiv1alpha1.CFPackageList](conditionTimeout),
+		repositories.NewPackageSorter(),
 	)
 	serviceInstanceRepo := repositories.NewServiceInstanceRepo(
 		namespaceRetriever,
 		userClientFactory,
-		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFServiceInstance, korifiv1alpha1.CFServiceInstanceList](conditionTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFServiceInstance, korifiv1alpha1.CFServiceInstance, korifiv1alpha1.CFServiceInstanceList](conditionTimeout),
+		repositories.NewServiceInstanceSorter(),
+		cfg.RootNamespace,
 	)
 	serviceBindingRepo := repositories.NewServiceBindingRepo(
 		namespaceRetriever,
 		userClientFactory,
-		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFServiceBinding, korifiv1alpha1.CFServiceBindingList](conditionTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFServiceBinding, korifiv1alpha1.CFServiceBinding, korifiv1alpha1.CFServiceBindingList](conditionTimeout),
+	)
+	stackRepo := repositories.NewStackRepository(cfg.BuilderName,
+		userClientFactoryUnfiltered,
+		cfg.RootNamespace,
 	)
 	buildpackRepo := repositories.NewBuildpackRepository(cfg.BuilderName,
-		userClientFactory,
+		userClientFactoryUnfiltered,
 		cfg.RootNamespace,
+		repositories.NewBuildpackSorter(),
 	)
 	roleRepo := repositories.NewRoleRepo(
 		userClientFactory,
 		spaceRepo,
-		authorization.NewNamespacePermissions(privilegedCRClient, cachingIdentityProvider),
-		authorization.NewNamespacePermissions(privilegedCRClient, cachingIdentityProvider),
+		authorization.NewNamespacePermissions(privilegedClient, cachingIdentityProvider),
+		authorization.NewNamespacePermissions(privilegedClient, cachingIdentityProvider),
 		cfg.RootNamespace,
 		cfg.RoleMappings,
 		namespaceRetriever,
+		repositories.NewRoleSorter(),
 	)
-	imageClient := image.NewClient(privilegedK8sClient)
+	imageClient := image.NewClient(privilegedClientset)
 	imageRepo := repositories.NewImageRepository(
-		privilegedK8sClient,
-		userClientFactory,
+		userClientFactoryUnfiltered,
 		imageClient,
 		cfg.PackageRegistrySecretNames,
 		cfg.RootNamespace,
@@ -222,10 +236,12 @@ func main() {
 	taskRepo := repositories.NewTaskRepo(
 		userClientFactory,
 		namespaceRetriever,
-		nsPermissions,
-		conditions.NewConditionAwaiter[*korifiv1alpha1.CFTask, korifiv1alpha1.CFTaskList](conditionTimeout),
+		conditions.NewConditionAwaiter[*korifiv1alpha1.CFTask, korifiv1alpha1.CFTask, korifiv1alpha1.CFTaskList](conditionTimeout),
 	)
-	metricsRepo := repositories.NewMetricsRepo(userClientFactory)
+	metricsRepo := repositories.NewMetricsRepo(userClientFactoryUnfiltered)
+	serviceBrokerRepo := repositories.NewServiceBrokerRepo(userClientFactory, cfg.RootNamespace)
+	serviceOfferingRepo := repositories.NewServiceOfferingRepo(userClientFactory, cfg.RootNamespace, serviceBrokerRepo, nsPermissions)
+	servicePlanRepo := repositories.NewServicePlanRepo(userClientFactory, cfg.RootNamespace, orgRepo)
 
 	processStats := actions.NewProcessStats(processRepo, appRepo, metricsRepo)
 	manifest := actions.NewManifest(
@@ -235,7 +251,6 @@ func main() {
 		manifest.NewNormalizer(cfg.DefaultDomainName),
 		manifest.NewApplier(appRepo, domainRepo, processRepo, routeRepo, serviceInstanceRepo, serviceBindingRepo),
 	)
-	appLogs := actions.NewAppLogs(appRepo, buildRepo, podRepo)
 
 	requestValidator := validation.NewDefaultDecoderValidator()
 
@@ -246,6 +261,10 @@ func main() {
 		middleware.HTTPLogging,
 		chiMiddlewares.StripSlashes,
 	)
+
+	if !cfg.Experimental.ManagedServices.Enabled {
+		routerBuilder.UseMiddleware(middleware.DisableManagedServices)
+	}
 
 	authInfoParser := authorization.NewInfoParser()
 	routerBuilder.UseAuthMiddleware(
@@ -261,9 +280,15 @@ func main() {
 		),
 	)
 
+	relationshipsRepo := relationships.NewResourseRelationshipsRepo(
+		serviceOfferingRepo,
+		serviceBrokerRepo,
+		servicePlanRepo,
+	)
+
 	apiHandlers := []routing.Routable{
 		handlers.NewRootV3(*serverURL),
-		handlers.NewRoot(*serverURL),
+		handlers.NewRoot(*serverURL, cfg.Experimental.UAA),
 		handlers.NewInfoV3(
 			*serverURL,
 			cfg.InfoConfig,
@@ -280,6 +305,7 @@ func main() {
 			spaceRepo,
 			packageRepo,
 			requestValidator,
+			podRepo,
 		),
 		handlers.NewRoute(
 			*serverURL,
@@ -318,6 +344,7 @@ func main() {
 			processRepo,
 			processStats,
 			requestValidator,
+			podRepo,
 		),
 		handlers.NewDomain(
 			*serverURL,
@@ -331,23 +358,36 @@ func main() {
 			runnerInfoRepo,
 			cfg.RunnerName,
 		),
+		handlers.NewStack(
+			*serverURL,
+			stackRepo,
+		),
 		handlers.NewJob(
 			*serverURL,
 			map[string]handlers.DeletionRepository{
-				handlers.OrgDeleteJobType:    orgRepo,
-				handlers.SpaceDeleteJobType:  spaceRepo,
-				handlers.AppDeleteJobType:    appRepo,
-				handlers.RouteDeleteJobType:  routeRepo,
-				handlers.DomainDeleteJobType: domainRepo,
-				handlers.RoleDeleteJobType:   roleRepo,
+				handlers.OrgDeleteJobType:                    orgRepo,
+				handlers.SpaceDeleteJobType:                  spaceRepo,
+				handlers.AppDeleteJobType:                    appRepo,
+				handlers.RouteDeleteJobType:                  routeRepo,
+				handlers.DomainDeleteJobType:                 domainRepo,
+				handlers.RoleDeleteJobType:                   roleRepo,
+				handlers.ServiceBrokerDeleteJobType:          serviceBrokerRepo,
+				handlers.ManagedServiceInstanceDeleteJobType: serviceInstanceRepo,
+				handlers.ManagedServiceBindingDeleteJobType:  serviceBindingRepo,
+			},
+			map[string]handlers.StateRepository{
+				handlers.ServiceBrokerCreateJobType:          serviceBrokerRepo,
+				handlers.ServiceBrokerUpdateJobType:          serviceBrokerRepo,
+				handlers.ManagedServiceInstanceCreateJobType: serviceInstanceRepo,
+				handlers.ManagedServiceBindingCreateJobType:  serviceBindingRepo,
 			},
 			500*time.Millisecond,
 		),
 		handlers.NewLogCache(
+			requestValidator,
 			appRepo,
 			buildRepo,
-			appLogs,
-			requestValidator,
+			logRepo,
 		),
 		handlers.NewOrg(
 			*serverURL,
@@ -385,6 +425,7 @@ func main() {
 			serviceInstanceRepo,
 			spaceRepo,
 			requestValidator,
+			relationshipsRepo,
 		),
 		handlers.NewServiceBinding(
 			*serverURL,
@@ -401,6 +442,24 @@ func main() {
 		),
 		handlers.NewOAuth(
 			*serverURL,
+		),
+		handlers.NewServiceBroker(
+			*serverURL,
+			serviceBrokerRepo,
+			requestValidator,
+		),
+		handlers.NewServiceOffering(
+			*serverURL,
+			requestValidator,
+			serviceOfferingRepo,
+			serviceBrokerRepo,
+			relationshipsRepo,
+		),
+		handlers.NewServicePlan(
+			*serverURL,
+			requestValidator,
+			servicePlanRepo,
+			relationshipsRepo,
 		),
 	}
 	for _, handler := range apiHandlers {

@@ -45,6 +45,7 @@ type RunnerInfoCapabilities struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:path=runnerinfos
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // RunnerInfo is the Schema for the runnerinfos API
 type RunnerInfo struct {
@@ -55,7 +56,12 @@ type RunnerInfo struct {
 	Status RunnerInfoStatus `json:"status,omitempty"`
 }
 
+func (i *RunnerInfo) StatusConditions() *[]metav1.Condition {
+	return &i.Status.Conditions
+}
+
 //+kubebuilder:object:root=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // RunnerInfoList contains a list of RunnerInfo
 type RunnerInfoList struct {

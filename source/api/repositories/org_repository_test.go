@@ -27,6 +27,7 @@ var _ = Describe("OrgRepository", func() {
 	var (
 		conditionAwaiter *fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFOrg,
+			korifiv1alpha1.CFOrg,
 			korifiv1alpha1.CFOrgList,
 			*korifiv1alpha1.CFOrgList,
 		]
@@ -36,6 +37,7 @@ var _ = Describe("OrgRepository", func() {
 	BeforeEach(func() {
 		conditionAwaiter = &fakeawaiter.FakeAwaiter[
 			*korifiv1alpha1.CFOrg,
+			korifiv1alpha1.CFOrg,
 			korifiv1alpha1.CFOrgList,
 			*korifiv1alpha1.CFOrgList,
 		]{}
@@ -107,7 +109,7 @@ var _ = Describe("OrgRepository", func() {
 				Expect(createErr).NotTo(HaveOccurred())
 
 				Expect(orgRecord.Name).To(Equal(orgGUID))
-				Expect(orgRecord.GUID).To(HavePrefix("cf-org-"))
+				Expect(orgRecord.GUID).To(matchers.BeValidUUID())
 				Expect(orgRecord.CreatedAt).To(BeTemporally("~", time.Now(), timeCheckThreshold))
 				Expect(orgRecord.UpdatedAt).To(PointTo(BeTemporally("~", time.Now(), timeCheckThreshold)))
 				Expect(orgRecord.DeletedAt).To(BeNil())
