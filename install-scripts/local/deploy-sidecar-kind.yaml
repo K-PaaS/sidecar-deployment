@@ -59,8 +59,8 @@ metadata:
         - git:
             dirty: true
             remoteURL: https://github.com/cloudfoundry/korifi.git
-            sha: 12840400bcf6f6d1f65ec3ef18c4d36dd4a19b29
-        url: index.docker.io/cloudfoundry/korifi-installer@sha256:59b86548500efdacac1869df76f377ac37e824d34616d23fe1846f888705ce6a
+            sha: d151c84337da850edbda97d36ae4a03b341f7e16
+        url: index.docker.io/cloudfoundry/korifi-installer@sha256:b2a6711b6eeaf2d12d5018ceac6530e4ddc24294c6a16840dae1a8ac2cdba7ac
   name: install-sidecar
   namespace: sidecar-installer
 spec:
@@ -88,6 +88,11 @@ spec:
             --set persistence.deleteEnabled=true \
             --set secrets.htpasswd='user:$2y$05$Ue5dboOfmqk6Say31Sin9uVbHWTl8J1Sgq9QyAEmFQRnq1TPfP1n2'
 
+          while ! curl -o /dev/null http://localregistry-docker-registry.default.svc.cluster.local:30050/v2/_catalog 2>/dev/null; do
+            echo Waiting for the local docker registry to respond...
+            sleep 1
+          done
+
           registry_status_code=""
           while [[ "$registry_status_code" != "200" ]]; do
             echo Waiting for the local docker registry to start...
@@ -108,17 +113,15 @@ spec:
             --set=controllers.taskTTL="5s" \
             --set=jobTaskRunner.jobTTL="5s" \
             --set=containerRepositoryPrefix="localregistry-docker-registry.default.svc.cluster.local:30050/" \
-            --set=kpackImageBuilder.clusterStackBuildImage="paketobuildpacks/build-jammy-base" \
-            --set=kpackImageBuilder.clusterStackRunImage="paketobuildpacks/run-jammy-base" \
             --set=kpackImageBuilder.builderRepository="localregistry-docker-registry.default.svc.cluster.local:30050/kpack-builder" \
             --set=networking.gatewayClass="contour" \
+            --set=networking.gatewayPorts.http="32080" \
+            --set=networking.gatewayPorts.https="32443" \
+            --set=experimental.managedServices.enabled="true" \
+            --set=experimental.managedServices.trustInsecureBrokers="true" \
             --wait
 
           kubectl wait --for=condition=ready clusterbuilder --all=true --timeout=15m
-
-          kubectl -n sidecar-gateway patch gateway korifi --type='json' -p='[{"op": "replace", "path": "/spec/listeners/0/port", "value":32080}]'
-          kubectl -n sidecar-gateway patch gateway korifi --type='json' -p='[{"op": "replace", "path": "/spec/listeners/1/port", "value":32443}]'
-          kubectl -n sidecar-gateway patch gateway korifi --type='json' -p='[{"op": "replace", "path": "/spec/listeners/2/port", "value":32443}]'
 
           kubectl apply -f - <<EOF
           kind: GatewayClass
@@ -144,7 +147,8 @@ spec:
               networkPublishing:
                 type: NodePortService
           EOF
-        image: index.docker.io/cloudfoundry/korifi-installer@sha256:59b86548500efdacac1869df76f377ac37e824d34616d23fe1846f888705ce6a
+        image: index.docker.io/cloudfoundry/korifi-installer@sha256:b2a6711b6eeaf2d12d5018ceac6530e4ddc24294c6a16840dae1a8ac2cdba7ac
         name: install-sidecar
       restartPolicy: Never
       serviceAccountName: sidecar-installer
+
