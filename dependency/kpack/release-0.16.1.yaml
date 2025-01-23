@@ -371,7 +371,7 @@ metadata:
   name: build-init-image
   namespace: kpack
 data:
-  image: gcr.io/cf-build-service-public/kpack/build-init@sha256:d336eeddab0dcba44e69a74fcb1bf97f0fc5ef0449f2cd19182b68bd813ff477
+  image: gcr.io/cf-build-service-public/kpack/build-init@sha256:c607b405d6da349184e58acc4249c731aeef447ee7769e56b22ac978037fc648
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -379,7 +379,7 @@ metadata:
   name: build-init-windows-image
   namespace: kpack
 data:
-  image: gcr.io/cf-build-service-public/kpack/build-init-windows@sha256:d2c8a23d54b9efa16a936e48d90301df0324204ddf8a541c821e949a8682dd1c
+  image: gcr.io/cf-build-service-public/kpack/build-init-windows@sha256:85504f2b52ce0032cbb191464b26dabecdcc1e8c52aff3fa4864abcbe1c0fa3c
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -387,7 +387,7 @@ metadata:
   name: build-waiter-image
   namespace: kpack
 data:
-  image: gcr.io/cf-build-service-public/kpack/build-waiter@sha256:57aaf1f5d529c319f82d8fe472aadff06963ac41b615305423c3f40cda2b8857
+  image: gcr.io/cf-build-service-public/kpack/build-waiter@sha256:2ef8850943e48b871bc10bc309860cf4f95f9fce350a8458bc8509a76699f19a
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -395,7 +395,7 @@ metadata:
   name: rebase-image
   namespace: kpack
 data:
-  image: gcr.io/cf-build-service-public/kpack/rebase@sha256:a7dee47ef0413d38ee65d75a82832a7e6ce7dc1af197d18bb988f7d22c6bf689
+  image: gcr.io/cf-build-service-public/kpack/rebase@sha256:991603314b128504ddd0481f41fde4ee45245f9e1ec932e9b99916af195bc2e2
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -403,7 +403,7 @@ metadata:
   name: lifecycle-image
   namespace: kpack
 data:
-  image: gcr.io/cf-build-service-public/kpack/lifecycle@sha256:4d26f37a1d92570663efed529f61228c93082d552974141eac7474c492b108d1
+  image: gcr.io/cf-build-service-public/kpack/lifecycle@sha256:26d579d432c9cd17804656f398366cf98ee39eec1fbb7f384c8c67900219fb5f
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -411,7 +411,7 @@ metadata:
   name: completion-image
   namespace: kpack
 data:
-  image: gcr.io/cf-build-service-public/kpack/completion@sha256:f8f3b097d28c821610155ffbc61047b1066027db26ccec7f8c4c009bee4d1db9
+  image: gcr.io/cf-build-service-public/kpack/completion@sha256:2e7c47fedfca9e51d2ae3b8c16e2ef22288d537eb6bcb5c22676890c575f3c52
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -419,7 +419,7 @@ metadata:
   name: completion-windows-image
   namespace: kpack
 data:
-  image: gcr.io/cf-build-service-public/kpack/completion-windows@sha256:bab16a7c3f4ca12fe60acb8489d5c098ead2e925f243e4423d38a5ccab0f412a
+  image: gcr.io/cf-build-service-public/kpack/completion-windows@sha256:06fff7d0fca356e61ebe2b55738f944c6ab645f2d502efafde3aca556339a4b0
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -435,7 +435,7 @@ spec:
     metadata:
       labels:
         app: kpack-controller
-        version: 0.13.4
+        version: 0.16.1
     spec:
       securityContext:
         runAsNonRoot: true
@@ -456,7 +456,7 @@ spec:
           capabilities:
             drop:
             - ALL
-        image: gcr.io/cf-build-service-public/kpack/controller@sha256:455f06f57a172d0f3c3e6bd3c1ab1feaa26337124bb8f3c1c0a02eb23d5780ff
+        image: gcr.io/cf-build-service-public/kpack/controller@sha256:9358b9172bd61299deda665e47356109adc68b583c754be65e3eb1cf0c96bff3
         env:
         - name: ENABLE_PRIORITY_CLASSES
           value: "false"
@@ -472,6 +472,8 @@ spec:
           value: config-observability
         - name: METRICS_DOMAIN
           value: kpack.io
+        - name: SCALING_FACTOR
+          value: "1"
         - name: SYSTEM_NAMESPACE
           valueFrom:
             fieldRef:
@@ -868,7 +870,7 @@ spec:
       labels:
         app: kpack-webhook
         role: webhook
-        version: 0.13.4
+        version: 0.16.1
     spec:
       securityContext:
         runAsNonRoot: true
@@ -889,7 +891,7 @@ spec:
           capabilities:
             drop:
             - ALL
-        image: gcr.io/cf-build-service-public/kpack/webhook@sha256:d379730b2134a3258b84e86773d682ef99d959983d82e9e0cd08b9416b5c87ba
+        image: gcr.io/cf-build-service-public/kpack/webhook@sha256:3a4e0db1b524b9f2ab41198ba23a73f8b8f0674296cb6020d92190d507291068
         ports:
         - name: https-webhook
           containerPort: 8443
